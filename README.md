@@ -115,6 +115,67 @@ result.objective    # Achieved variance
 result = optimize(mu, Sigma, SharpeMaximizer(risk_free_rate=0.02))
 ```
 
+### Monte Carlo Pricing
+
+```julia
+# GBM dynamics for European/Asian/Barrier options
+dynamics = GBMDynamics(0.05, 0.2)  # r=5%, σ=20%
+
+# European options with variance reduction
+result = mc_price(100.0, 1.0, EuropeanCall(105.0), dynamics;
+                  npaths=50000, antithetic=true)
+result.price   # Monte Carlo estimate
+result.stderr  # Standard error
+
+# Asian options (path-dependent)
+mc_price(100.0, 1.0, AsianCall(100.0), dynamics; npaths=50000)
+
+# Barrier options
+mc_price(100.0, 1.0, UpAndOutCall(100.0, 130.0), dynamics; npaths=50000)
+
+# Heston stochastic volatility
+heston = HestonDynamics(0.05, 0.04, 2.0, 0.04, 0.3, -0.7)
+mc_price(100.0, 1.0, EuropeanCall(100.0), heston; npaths=50000)
+```
+
+### American Options (Longstaff-Schwartz)
+
+```julia
+# Price American options using LSM algorithm
+dynamics = GBMDynamics(0.05, 0.2)
+
+am_put = lsm_price(100.0, 1.0, AmericanPut(100.0), dynamics;
+                   npaths=50000, nsteps=50)
+am_put.price   # American option price
+am_put.stderr  # Standard error
+
+# Compare to European (American >= European for puts)
+eu_put = mc_price(100.0, 1.0, EuropeanPut(100.0), dynamics; npaths=50000)
+early_exercise_premium = am_put.price - eu_put.price
+```
+
+### Model Calibration
+
+```julia
+# Calibrate SABR model to market smile
+quotes = [OptionQuote(K, T, 0.0, :call, market_vol) for (K, market_vol) in data]
+smile = SmileData(T, forward, rate, quotes)
+
+result = calibrate_sabr(smile; beta=1.0)
+result.params.alpha  # Fitted α
+result.params.rho    # Fitted ρ (skew)
+result.params.nu     # Fitted ν (smile curvature)
+result.rmse          # Calibration error
+
+# Price with calibrated SABR
+sabr_implied_vol(F, K, T, result.params)
+sabr_price(F, K, T, r, result.params, :call)
+
+# Heston calibration to term structure
+surface = VolSurface([smile1, smile2, smile3])
+result = calibrate_heston(surface)
+```
+
 ## AD Backends
 
 Quasar supports multiple automatic differentiation backends:
@@ -158,6 +219,15 @@ Quasar uses Julia's Holy Traits pattern for capability dispatch:
 - `Differentiable` - Participates in AD
 - `HasGreeks` - Can compute sensitivities (Delta, Gamma, Vega, etc.)
 - `Simulatable` - Can be included in Monte Carlo paths
+
+## Notebooks
+
+Interactive tutorials demonstrating key features:
+
+| Notebook | Description |
+|----------|-------------|
+| [Volatility Smile Calibration](notebooks/volatility_smile_calibration.ipynb) | Calibrate SABR model to market smiles using AD-powered optimization |
+| [American Options with LSM](notebooks/american_options_lsm.ipynb) | Price American options with Longstaff-Schwartz Monte Carlo |
 
 ## License
 
