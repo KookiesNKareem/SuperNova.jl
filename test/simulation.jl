@@ -19,4 +19,28 @@ using Dates
         # Portfolio value computation
         @test portfolio_value(state) == 100_000.0 + 100*150 + 50*140  # 122,000
     end
+
+    @testset "Execution Models" begin
+        # Instant fill - no slippage
+        instant = InstantFill()
+        order = Order(:AAPL, 10.0, :buy)  # Buy 10 shares
+        prices = Dict(:AAPL => 150.0)
+
+        fill = execute(instant, order, prices)
+        @test fill.quantity == 10.0
+        @test fill.price == 150.0
+        @test fill.cost == 1500.0
+
+        # Slippage model
+        slippage = SlippageModel(spread_bps=10.0)  # 10 bps spread
+        fill_slip = execute(slippage, order, prices)
+        @test fill_slip.price > 150.0  # Buy at higher price due to spread
+        @test fill_slip.price ≈ 150.0 * 1.001 atol=0.01  # ~10 bps higher
+
+        # Market impact model
+        impact = MarketImpactModel(spread_bps=10.0, impact_bps_per_unit=0.1)
+        large_order = Order(:AAPL, 1000.0, :buy)
+        fill_impact = execute(impact, large_order, prices)
+        @test fill_impact.price > fill_slip.price  # More slippage due to size
+    end
 end

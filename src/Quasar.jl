@@ -121,5 +121,7 @@ export black_caplet, black_floorlet, black_cap, black_floor
 include("Simulation.jl")
 using .Simulation
 export SimulationState, portfolio_value
+export Order, Fill, AbstractExecutionModel, InstantFill, SlippageModel, MarketImpactModel
+export execute
 
 end
