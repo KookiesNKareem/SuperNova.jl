@@ -186,13 +186,21 @@ struct HestonParams{T1,T2,T3,T4,T5}
 end
 
 """
-    heston_characteristic(u, S, K, T, r, params::HestonParams)
+    heston_characteristic(u, S, T, r, q, params::HestonParams)
 
 Compute the Heston characteristic function for pricing via Fourier methods.
 
 Uses the log-stock formulation with the Gatheral parameterization for stability.
+
+# Arguments
+- `u` - Fourier frequency
+- `S` - Spot price
+- `T` - Time to expiry
+- `r` - Risk-free rate
+- `q` - Continuous dividend yield
+- `params` - Heston model parameters
 """
-function heston_characteristic(u, S, T, r, params::HestonParams)
+function heston_characteristic(u, S, T, r, q, params::HestonParams)
     v0, θ, κ, σ, ρ = params.v0, params.theta, params.kappa, params.sigma, params.rho
 
     # Gatheral's notation (more stable)
@@ -205,14 +213,21 @@ function heston_characteristic(u, S, T, r, params::HestonParams)
     g = (b - ρ * σ * iu - d) / (b - ρ * σ * iu + d)
 
     # Characteristic function components
-    C = r * iu * T + (a / σ^2) * ((b - ρ * σ * iu - d) * T - 2 * log((1 - g * exp(-d * T)) / (1 - g)))
+    # Use (r - q) as the drift for dividend-adjusted pricing
+    drift = r - q
+    C = drift * iu * T + (a / σ^2) * ((b - ρ * σ * iu - d) * T - 2 * log((1 - g * exp(-d * T)) / (1 - g)))
     D = ((b - ρ * σ * iu - d) / σ^2) * ((1 - exp(-d * T)) / (1 - g * exp(-d * T)))
 
     return exp(C + D * v0 + iu * log(S))
 end
 
+# Backward-compatible method without dividend yield
+function heston_characteristic(u, S, T, r, params::HestonParams)
+    heston_characteristic(u, S, T, r, 0.0, params)
+end
+
 """
-    heston_price(S, K, T, r, params::HestonParams, optiontype::Symbol; N=128)
+    heston_price(S, K, T, r, q, params::HestonParams, optiontype::Symbol; N=128)
 
 Price a European option under the Heston model using numerical integration.
 
@@ -221,6 +236,7 @@ Price a European option under the Heston model using numerical integration.
 - `K` - Strike price
 - `T` - Time to expiry (in years)
 - `r` - Risk-free rate
+- `q` - Continuous dividend yield (default 0.0)
 - `params` - Heston model parameters
 - `optiontype` - :call or :put
 - `N` - Number of integration points (default 128)
@@ -230,8 +246,17 @@ Option price
 
 # Notes
 Uses the Gil-Pelaez / Carr-Madan approach with trapezoidal integration.
+
+# Example
+```julia
+params = HestonParams(0.04, 0.04, 1.5, 0.3, -0.7)
+# Without dividends
+price = heston_price(100.0, 100.0, 1.0, 0.05, params, :call)
+# With 2% dividend yield
+price = heston_price(100.0, 100.0, 1.0, 0.05, 0.02, params, :call)
+```
 """
-function heston_price(S, K, T, r, params::HestonParams, optiontype::Symbol; N::Int=128)
+function heston_price(S, K, T, r, q, params::HestonParams, optiontype::Symbol; N::Int=128)
     # Handle edge cases
     if T <= 0
         if optiontype == :call
@@ -241,12 +266,11 @@ function heston_price(S, K, T, r, params::HestonParams, optiontype::Symbol; N::I
         end
     end
 
-    # Gil-Pelaez inversion formula
-    # P1 = 0.5 + (1/π) * ∫₀^∞ Re[exp(-iu*log(K)) * φ(u-i) / (iu * S * exp(rT))] du
-    # P2 = 0.5 + (1/π) * ∫₀^∞ Re[exp(-iu*log(K)) * φ(u) / (iu)] du
+    # Gil-Pelaez inversion formula with dividend adjustment
+    # The forward price is F = S * exp((r-q)*T)
+    # P1 and P2 are computed using the dividend-adjusted characteristic function
 
     logK = log(K)
-    logS = log(S)
 
     # Use trapezoidal rule with exponential decay for truncation
     # Integration limit and step size
@@ -259,15 +283,16 @@ function heston_price(S, K, T, r, params::HestonParams, optiontype::Symbol; N::I
     for j in 1:N
         u = (j - 0.5) * du  # Midpoint rule
 
-        # Characteristic function evaluations
-        φ1 = heston_characteristic(u - im, S, T, r, params)
-        φ2 = heston_characteristic(u, S, T, r, params)
+        # Characteristic function evaluations (with dividend yield)
+        φ1 = heston_characteristic(u - im, S, T, r, q, params)
+        φ2 = heston_characteristic(u, S, T, r, q, params)
 
         # Integrands for P1 and P2
         exp_term = exp(-im * u * logK)
 
-        # P1 integrand: Re[exp(-iu*logK) * φ(u-i) / (iu * S * exp(rT))]
-        integrand1 = real(exp_term * φ1 / (im * u * S * exp(r * T)))
+        # P1 integrand: Re[exp(-iu*logK) * φ(u-i) / (iu * S * exp((r-q)T))]
+        # Note: denominator uses (r-q) for dividend adjustment
+        integrand1 = real(exp_term * φ1 / (im * u * S * exp((r - q) * T)))
 
         # P2 integrand: Re[exp(-iu*logK) * φ(u) / (iu)]
         integrand2 = real(exp_term * φ2 / (im * u))
@@ -283,16 +308,22 @@ function heston_price(S, K, T, r, params::HestonParams, optiontype::Symbol; N::I
     P1 = clamp(P1, 0.0, 1.0)
     P2 = clamp(P2, 0.0, 1.0)
 
-    # Call price
-    call_price = S * P1 - K * exp(-r * T) * P2
+    # Call price with dividend adjustment
+    # C = S * exp(-q*T) * P1 - K * exp(-r*T) * P2
+    call_price = S * exp(-q * T) * P1 - K * exp(-r * T) * P2
 
     if optiontype == :call
         return max(call_price, 0.0)
     else
-        # Put-call parity
-        put_price = call_price - S + K * exp(-r * T)
+        # Put-call parity: P = C - S*exp(-qT) + K*exp(-rT)
+        put_price = call_price - S * exp(-q * T) + K * exp(-r * T)
         return max(put_price, 0.0)
     end
+end
+
+# Backward-compatible method without dividend yield
+function heston_price(S, K, T, r, params::HestonParams, optiontype::Symbol; N::Int=128)
+    heston_price(S, K, T, r, 0.0, params, optiontype; N=N)
 end
 
 # ============================================================================

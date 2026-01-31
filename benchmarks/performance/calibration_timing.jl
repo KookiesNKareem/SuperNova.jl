@@ -125,14 +125,21 @@ function run_calibration_timing_benchmark(; verbose::Bool=true,
     backends = Dict{String, ADBackend}()
     backends["ForwardDiff"] = ForwardDiffBackend()
 
-    # Check if Reactant is available
+    # Check if Reactant is available (via the extension being loaded)
     reactant_available = false
     try
-        if isdefined(Main, :Reactant)
-            backends["Reactant"] = ReactantBackend()
+        # Try to create a ReactantBackend - this will work if the extension is loaded
+        test_backend = ReactantBackend()
+        # Test if it actually works with a simple function
+        test_grad = gradient(x -> sum(x.^2), [1.0, 2.0]; backend=test_backend)
+        if test_grad ≈ [2.0, 4.0]
+            backends["Reactant (GPU)"] = test_backend
             reactant_available = true
         end
-    catch
+    catch e
+        if verbose
+            println("Note: Reactant test failed: $(typeof(e))")
+        end
     end
 
     # SABR Calibration Benchmarks
@@ -211,14 +218,14 @@ function run_calibration_timing_benchmark(; verbose::Bool=true,
         println("Speedup Summary")
         println("-" ^ 65)
 
-        if haskey(sabr_results, "Reactant") && sabr_baseline !== nothing
-            speedup = sabr_baseline / sabr_results["Reactant"].time
-            @printf("SABR:   ForwardDiff -> Reactant: %.2fx\n", speedup)
+        if haskey(sabr_results, "Reactant (GPU)") && sabr_baseline !== nothing
+            speedup = sabr_baseline / sabr_results["Reactant (GPU)"].time
+            @printf("SABR:   ForwardDiff -> Reactant (GPU): %.2fx\n", speedup)
         end
 
-        if haskey(heston_results, "Reactant") && heston_baseline !== nothing
-            speedup = heston_baseline / heston_results["Reactant"].time
-            @printf("Heston: ForwardDiff -> Reactant: %.2fx\n", speedup)
+        if haskey(heston_results, "Reactant (GPU)") && heston_baseline !== nothing
+            speedup = heston_baseline / heston_results["Reactant (GPU)"].time
+            @printf("Heston: ForwardDiff -> Reactant (GPU): %.2fx\n", speedup)
         end
     elseif verbose && !reactant_available
         println()

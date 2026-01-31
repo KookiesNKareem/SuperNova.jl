@@ -205,6 +205,84 @@ function run_heston_reference_benchmark(; verbose=true)
     end
 
     # =========================================================================
+    # Test 4: Dividend Yield Support
+    # =========================================================================
+    if verbose
+        println()
+        println("Test 4: Dividend Yield Support")
+        println("-" ^ 70)
+    end
+
+    dividend_passed = true
+    dividend_results = []
+    q = 0.03  # 3% dividend yield
+
+    # Test 4a: Put-call parity with dividends
+    # C - P = S*exp(-qT) - K*exp(-rT)
+    if verbose
+        println("4a. Put-Call Parity with Dividends (q=$q)")
+        @printf("    C - P = S*exp(-qT) - K*exp(-rT)\n")
+        println("-" ^ 70)
+        @printf("%-10s %-12s %-12s %-12s %-12s %-8s\n",
+                "Strike", "Call", "Put", "C-P", "Expected", "Status")
+        println("-" ^ 70)
+    end
+
+    for K in strikes
+        call_div = heston_price(S0, K, T, r, q, params, :call; N=256)
+        put_div = heston_price(S0, K, T, r, q, params, :put; N=256)
+
+        lhs = call_div - put_div
+        rhs = S0 * exp(-q * T) - K * exp(-r * T)
+        error = abs(lhs - rhs)
+
+        passed = error < parity_tolerance
+        dividend_passed = dividend_passed && passed
+        status = passed ? "PASS" : "FAIL"
+
+        push!(dividend_results, (K=K, call=call_div, put=put_div, lhs=lhs, rhs=rhs, error=error, passed=passed))
+
+        if verbose
+            @printf("%-10.0f %-12.6f %-12.6f %-12.6f %-12.6f %-8s\n",
+                    K, call_div, put_div, lhs, rhs, status)
+        end
+    end
+
+    # Test 4b: Dividends should reduce call prices
+    if verbose
+        println()
+        println("4b. Dividend Effect on Call Prices")
+        println("-" ^ 70)
+        @printf("%-10s %-15s %-15s %-15s %-8s\n",
+                "Strike", "No Dividend", "With q=$q", "Difference", "Status")
+        println("-" ^ 70)
+    end
+
+    for K in strikes
+        call_no_div = heston_price(S0, K, T, r, params, :call; N=256)
+        call_with_div = heston_price(S0, K, T, r, q, params, :call; N=256)
+        diff = call_no_div - call_with_div
+
+        # Dividends should reduce call prices
+        passed = diff > 0
+        dividend_passed = dividend_passed && passed
+        status = passed ? "PASS" : "FAIL"
+
+        if verbose
+            @printf("%-10.0f %-15.6f %-15.6f %-15.6f %-8s\n",
+                    K, call_no_div, call_with_div, diff, status)
+        end
+    end
+
+    results["dividend"] = dividend_results
+    all_passed = all_passed && dividend_passed
+
+    if verbose
+        println("-" ^ 70)
+        println("Dividend Support: ", dividend_passed ? "PASS" : "FAIL")
+    end
+
+    # =========================================================================
     # Summary
     # =========================================================================
     if verbose
@@ -215,6 +293,7 @@ function run_heston_reference_benchmark(; verbose=true)
         println("Put-Call Parity:     ", parity_passed ? "PASS" : "FAIL")
         println("Convergence:         ", convergence_passed ? "PASS" : "FAIL")
         println("Boundary Conditions: ", boundary_passed ? "PASS" : "FAIL")
+        println("Dividend Support:    ", dividend_passed ? "PASS" : "FAIL")
         println("-" ^ 70)
         println("Overall: ", all_passed ? "PASS" : "FAIL")
         println()

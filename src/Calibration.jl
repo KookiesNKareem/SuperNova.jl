@@ -1,9 +1,79 @@
 module Calibration
 
-using ..AD: gradient, ForwardDiffBackend, current_backend, ADBackend
+using ..AD: gradient, ForwardDiffBackend, current_backend, ADBackend, ReactantBackend
 using ..Models: SABRParams, sabr_implied_vol, sabr_price, HestonParams, heston_price
 using LinearAlgebra: norm
 using Statistics: mean
+
+# ============================================================================
+# GPU-Compatible Parameter Extraction
+# ============================================================================
+
+# Masks for extracting parameters without scalar indexing (required for Reactant/GPU)
+const MASK_3_1 = [1.0, 0.0, 0.0]
+const MASK_3_2 = [0.0, 1.0, 0.0]
+const MASK_3_3 = [0.0, 0.0, 1.0]
+
+const MASK_5_1 = [1.0, 0.0, 0.0, 0.0, 0.0]
+const MASK_5_2 = [0.0, 1.0, 0.0, 0.0, 0.0]
+const MASK_5_3 = [0.0, 0.0, 1.0, 0.0, 0.0]
+const MASK_5_4 = [0.0, 0.0, 0.0, 1.0, 0.0]
+const MASK_5_5 = [0.0, 0.0, 0.0, 0.0, 1.0]
+
+"""
+    _extract_param(params, mask)
+
+Extract a single parameter from array using dot product with mask.
+This avoids scalar indexing which is incompatible with GPU backends (Reactant).
+"""
+@inline _extract_param(params, mask) = sum(params .* mask)
+
+# ============================================================================
+# Vectorized SABR Implied Vol (for GPU calibration)
+# ============================================================================
+
+"""
+    _sabr_implied_vol_scalar(F, K, T, α, β, ρ, ν)
+
+SABR implied volatility with scalar parameters (not struct).
+Used internally for GPU-compatible calibration.
+"""
+function _sabr_implied_vol_scalar(F, K, T, α, β, ρ, ν)
+    # Handle ATM case
+    if abs(F - K) < 1e-12
+        F_pow = F^(β - 1)
+        C1 = ((1-β)^2 / 24) * α^2 * F_pow^2
+        C2 = (ρ * β * ν * α * F_pow) / 4
+        C3 = (2 - 3*ρ^2) * ν^2 / 24
+        return α * F_pow * (1 + (C1 + C2 + C3) * T)
+    end
+
+    # Hagan's formula for non-ATM
+    logFK = log(F / K)
+    FK_mid = (F * K)^((1 - β) / 2)
+
+    z = (ν / α) * FK_mid * logFK
+
+    # Compute x(z) with care for small z
+    if abs(z) < 1e-12
+        x_z = one(z)
+    else
+        sqrt_term = sqrt(1 - 2*ρ*z + z^2)
+        x_z = log((sqrt_term + z - ρ) / (1 - ρ))
+        x_z = z / x_z
+    end
+
+    # Numerator: expansion in logFK
+    denom_expansion = 1 + (1-β)^2/24 * logFK^2 + (1-β)^4/1920 * logFK^4
+    A = α / (FK_mid * denom_expansion)
+
+    # Correction terms for time
+    C1 = ((1-β)^2 / 24) * (α^2 / FK_mid^2)
+    C2 = (ρ * β * ν * α) / (4 * FK_mid)
+    C3 = (2 - 3*ρ^2) * ν^2 / 24
+
+    return A * x_z * (1 + (C1 + C2 + C3) * T)
+end
 
 # ============================================================================
 # Market Data Types
@@ -115,6 +185,10 @@ function calibrate_sabr(smile::SmileData;
     quotes = smile.quotes
     n_quotes = length(quotes)
 
+    # Pre-extract strikes and market vols as arrays (for vectorized GPU computation)
+    strikes = Float64[q.strike for q in quotes]
+    market_vols = Float64[q.implied_vol for q in quotes]
+
     # Find ATM quote for initial guess
     atm_idx = argmin([abs(q.strike - F) for q in quotes])
     atm_vol = quotes[atm_idx].implied_vol
@@ -141,11 +215,35 @@ function calibrate_sabr(smile::SmileData;
     #   ν > 0 via exp()
     x = [α_init, atanh(clamp(ρ_init, -0.99, 0.99)), log(0.3)]
 
-    # Loss function: mean squared implied vol error
-    function loss(params)
-        α = abs(params[1])           # α > 0
-        ρ = tanh(params[2])          # -1 < ρ < 1
-        ν = exp(params[3])           # ν > 0
+    # Check if using GPU backend - use vectorized loss
+    use_gpu = backend isa ReactantBackend
+
+    # GPU-compatible loss function using mask-based parameter extraction
+    function loss_gpu(params)
+        # Extract parameters without scalar indexing (GPU-compatible)
+        α_raw = _extract_param(params, MASK_3_1)
+        ρ_raw = _extract_param(params, MASK_3_2)
+        ν_raw = _extract_param(params, MASK_3_3)
+
+        # Transform to constrained space
+        α = abs(α_raw)
+        ρ = tanh(ρ_raw)
+        ν = exp(ν_raw)
+
+        # Compute model vols for all strikes (vectorized)
+        total_sq_error = zero(eltype(params))
+        for i in 1:n_quotes
+            model_vol = _sabr_implied_vol_scalar(F, strikes[i], T, α, beta, ρ, ν)
+            total_sq_error += (model_vol - market_vols[i])^2
+        end
+        return total_sq_error / n_quotes
+    end
+
+    # CPU loss function (original, slightly faster for CPU)
+    function loss_cpu(params)
+        α = abs(params[1])
+        ρ = tanh(params[2])
+        ν = exp(params[3])
 
         sabr = SABRParams(α, beta, ρ, ν)
 
@@ -156,6 +254,9 @@ function calibrate_sabr(smile::SmileData;
         end
         return total_sq_error / n_quotes
     end
+
+    # Select loss function based on backend
+    loss = use_gpu ? loss_gpu : loss_cpu
 
     # Gradient descent with AD
     converged = false
@@ -263,6 +364,20 @@ function calibrate_heston(surface::VolSurface;
     # Count total quotes for normalization
     n_quotes = sum(length(smile.quotes) for smile in smiles)
 
+    # Pre-extract market data as flat arrays (for GPU compatibility)
+    all_strikes = Float64[]
+    all_expiries = Float64[]
+    all_prices = Float64[]
+    all_opttypes = Symbol[]
+    for smile in smiles
+        for q in smile.quotes
+            push!(all_strikes, q.strike)
+            push!(all_expiries, smile.expiry)
+            push!(all_prices, q.price)
+            push!(all_opttypes, q.optiontype)
+        end
+    end
+
     # Initial guess from ATM volatility
     # Find average ATM vol across expiries
     avg_atm_vol = 0.0
@@ -279,8 +394,38 @@ function calibrate_heston(surface::VolSurface;
     # [log(v0), log(θ), log(κ), log(σ), atanh(ρ)]
     x = [log(v0_init), log(v0_init), log(1.0), log(0.3), atanh(-0.5)]
 
-    # Loss function: mean squared price error (normalized by forward)
-    function loss(params)
+    # Check if using GPU backend
+    use_gpu = backend isa ReactantBackend
+
+    # GPU-compatible loss function using mask-based parameter extraction
+    function loss_gpu(params)
+        # Extract parameters without scalar indexing (GPU-compatible)
+        v0_raw = _extract_param(params, MASK_5_1)
+        θ_raw = _extract_param(params, MASK_5_2)
+        κ_raw = _extract_param(params, MASK_5_3)
+        σ_raw = _extract_param(params, MASK_5_4)
+        ρ_raw = _extract_param(params, MASK_5_5)
+
+        # Transform to constrained space
+        v0 = exp(v0_raw)
+        θ = exp(θ_raw)
+        κ = exp(κ_raw)
+        σ = exp(σ_raw)
+        ρ = tanh(ρ_raw)
+
+        heston = HestonParams(v0, θ, κ, σ, ρ)
+
+        total_sq_error = zero(eltype(params))
+        for i in 1:n_quotes
+            model_price = heston_price(S, all_strikes[i], all_expiries[i], r, heston, all_opttypes[i])
+            rel_error = (model_price - all_prices[i]) / all_strikes[i]
+            total_sq_error += rel_error^2
+        end
+        return total_sq_error / n_quotes
+    end
+
+    # CPU loss function (original)
+    function loss_cpu(params)
         v0 = exp(params[1])
         θ = exp(params[2])
         κ = exp(params[3])
@@ -294,13 +439,15 @@ function calibrate_heston(surface::VolSurface;
             T = smile.expiry
             for q in smile.quotes
                 model_price = heston_price(S, q.strike, T, r, heston, q.optiontype)
-                # Normalize error by strike for numerical stability
                 rel_error = (model_price - q.price) / q.strike
                 total_sq_error += rel_error^2
             end
         end
         return total_sq_error / n_quotes
     end
+
+    # Select loss function based on backend
+    loss = use_gpu ? loss_gpu : loss_cpu
 
     # Gradient descent with AD
     converged = false
