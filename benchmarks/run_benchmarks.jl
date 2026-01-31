@@ -5,6 +5,14 @@
 using Pkg
 Pkg.activate(joinpath(@__DIR__, ".."))
 
+# Try to load Reactant for GPU benchmarks (must be before Quasar)
+try
+    @eval using Reactant
+    @info "Reactant loaded for GPU benchmarks"
+catch
+    @info "Reactant not available, GPU benchmarks will be skipped"
+end
+
 using Quasar
 using Printf
 

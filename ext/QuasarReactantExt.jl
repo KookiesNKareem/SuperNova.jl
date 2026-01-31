@@ -16,6 +16,17 @@ using Enzyme
 #
 # Gradient and value_and_gradient are fully Reactant-accelerated.
 # Hessian and Jacobian use Enzyme directly (Reactant nested compilation is complex).
+#
+# KNOWN LIMITATIONS:
+# - Complex number AD not supported: Functions using complex arithmetic
+#   (e.g., Heston characteristic function) will crash during MLIR compilation.
+#   Error: "unsupported eltype: <<NULL TYPE>> of type tensor<complex<f64>>"
+# - Scalar indexing disabled: Use sum(params .* mask) pattern instead of params[i]
+# - Compilation overhead significant for small problems (< 1000 parameters)
+#
+# TODO: Monitor Reactant releases for complex number AD support
+# TODO: Consider implementing real-valued Heston (Carr-Madan cosine) for GPU
+# TODO: Add function caching to avoid recompilation
 # ============================================================================
 
 function Quasar.AD._gradient(::ReactantBackend, f, x)

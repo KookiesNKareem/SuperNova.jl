@@ -156,6 +156,10 @@ end
 # Heston Model
 # ============================================================================
 
+# TODO: Add Feller condition validation: 2κθ > σ² ensures variance stays positive
+# TODO: Add FFT-based pricing for faster computation with many strikes
+# TODO: Consider adding Heston-with-jumps (SVJ) model variant
+
 # Heston parameters: (v0, θ, κ, σ, ρ)
 # v0 = initial variance
 # θ = long-term variance (mean reversion level)

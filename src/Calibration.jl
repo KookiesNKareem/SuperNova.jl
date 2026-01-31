@@ -9,6 +9,12 @@ using Statistics: mean
 # GPU-Compatible Parameter Extraction
 # ============================================================================
 
+# TODO: Investigate if Julia 1.12+ destructuring works with Reactant traced arrays
+# FIXME: Heston GPU calibration not supported - Reactant doesn't handle complex AD
+#        The Heston characteristic function uses complex numbers which crash
+#        Reactant's MLIR compilation. Consider implementing real-valued Heston
+#        pricing (Carr-Madan with cosine expansion) for GPU support.
+
 # Masks for extracting parameters without scalar indexing (required for Reactant/GPU)
 const MASK_3_1 = [1.0, 0.0, 0.0]
 const MASK_3_2 = [0.0, 1.0, 0.0]
@@ -37,9 +43,12 @@ This avoids scalar indexing which is incompatible with GPU backends (Reactant).
 
 SABR implied volatility with scalar parameters (not struct).
 Used internally for GPU-compatible calibration.
+
+Note: This version avoids if-statements on traced values for Reactant compatibility.
+Uses smooth approximations instead of hard conditionals.
 """
 function _sabr_implied_vol_scalar(F, K, T, α, β, ρ, ν)
-    # Handle ATM case
+    # Handle ATM case (F and K are not traced, so this is safe)
     if abs(F - K) < 1e-12
         F_pow = F^(β - 1)
         C1 = ((1-β)^2 / 24) * α^2 * F_pow^2
@@ -54,14 +63,23 @@ function _sabr_implied_vol_scalar(F, K, T, α, β, ρ, ν)
 
     z = (ν / α) * FK_mid * logFK
 
-    # Compute x(z) with care for small z
-    if abs(z) < 1e-12
-        x_z = one(z)
-    else
-        sqrt_term = sqrt(1 - 2*ρ*z + z^2)
-        x_z = log((sqrt_term + z - ρ) / (1 - ρ))
-        x_z = z / x_z
-    end
+    # Compute x(z) using smooth approximation (GPU-compatible, no if on traced values)
+    # For small z: x(z) ≈ 1 + ρz/2 + O(z²)
+    # For large z: x(z) = z / log((sqrt(1-2ρz+z²) + z - ρ) / (1-ρ))
+    # Use smooth blend to avoid discontinuity
+    z_sq = z^2
+    sqrt_term = sqrt(1 - 2*ρ*z + z_sq + 1e-12)  # Small epsilon for numerical stability
+    log_arg = (sqrt_term + z - ρ) / (1 - ρ + 1e-12)
+    # Clamp log_arg to avoid log of negative/zero
+    log_arg_safe = max(log_arg, 1e-12)
+    x_z_full = z / (log(log_arg_safe) + 1e-12)
+
+    # Smooth transition: use Taylor expansion for small |z|, full formula otherwise
+    # Weight: w = z² / (z² + ε²), so w→0 for small z, w→1 for large z
+    eps_blend = 1e-6
+    w = z_sq / (z_sq + eps_blend)
+    x_z_taylor = 1 + ρ * z / 2  # First-order Taylor
+    x_z = (1 - w) * x_z_taylor + w * x_z_full
 
     # Numerator: expansion in logFK
     denom_expansion = 1 + (1-β)^2/24 * logFK^2 + (1-β)^4/1920 * logFK^4
@@ -144,6 +162,11 @@ end
 # ============================================================================
 # SABR Calibration
 # ============================================================================
+
+# TODO: Add support for calibrating beta (currently fixed)
+# TODO: Add quote weighting by liquidity/bid-ask spread
+# TODO: Consider BFGS or L-BFGS optimizer for faster convergence
+# TODO: Add regularization to prevent overfitting on noisy data
 
 """
     calibrate_sabr(smile::SmileData; beta=0.5, max_iter=1000, tol=1e-8, lr=0.01, backend=current_backend())
@@ -307,6 +330,11 @@ end
 # ============================================================================
 # Heston Calibration
 # ============================================================================
+
+# TODO: Add Feller condition constraint (2κθ > σ²) during optimization
+# TODO: Support term-structure of Heston parameters (different kappa per expiry)
+# TODO: Add dividend yield support in VolSurface and calibration
+# TODO: Consider differential evolution or particle swarm for global optimization
 
 """
     VolSurface

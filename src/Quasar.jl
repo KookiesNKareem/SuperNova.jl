@@ -46,6 +46,13 @@ using .Models
 export SABRParams, sabr_implied_vol, sabr_price, black76
 export HestonParams, heston_price, heston_characteristic
 
+# Batch pricing and GPU-optimized calibration
+include("BatchPricing.jl")
+using .BatchPricing
+export sabr_vols_batch, sabr_prices_batch
+export PrecompiledSABRCalibrator, compile_gpu!, calibrate!
+export price_surface_batch
+
 # Model calibration
 include("Calibration.jl")
 using .Calibration

@@ -190,6 +190,15 @@ function run_calibration_timing_benchmark(; verbose::Bool=true,
     heston_baseline = nothing
 
     for (name, backend) in backends
+        # Skip Reactant for Heston - complex number AD not supported
+        if contains(name, "Reactant")
+            if verbose
+                @printf("%-20s %-15s %-15s %-12s\n", name, "SKIP", "-", "-")
+                println("  Note: Heston uses complex numbers, not supported by Reactant AD")
+            end
+            continue
+        end
+
         try
             median_ms, std_ms, result = time_calibration(calibrate_heston, surface, backend)
             heston_results[name] = (time=median_ms, std=std_ms, converged=result.converged)
