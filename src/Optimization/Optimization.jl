@@ -1,7 +1,7 @@
 module Optimization
 
 using ..Core
-using ..Portfolio
+using ..PortfolioModule
 using ..Risk
 using ..AD
 

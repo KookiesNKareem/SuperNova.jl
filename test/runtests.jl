@@ -5,4 +5,5 @@ using Quasar
     include("Core/test_core.jl")
     include("AD/test_ad.jl")
     include("Instruments/test_instruments.jl")
+    include("Portfolio/test_portfolio.jl")
 end

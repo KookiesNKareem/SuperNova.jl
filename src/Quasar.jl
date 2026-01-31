@@ -27,8 +27,8 @@ export GreeksResult, compute_greeks, analytical_greeks
 
 # Portfolio
 include("Portfolio/Portfolio.jl")
-using .Portfolio
-export Portfolio
+using .PortfolioModule
+export Portfolio, value, portfolio_greeks
 
 # Risk measures
 include("Risk/Risk.jl")
