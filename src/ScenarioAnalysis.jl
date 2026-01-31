@@ -215,10 +215,150 @@ function scenario_impact(
 end
 
 # ============================================================================
+# Scenario Comparison
+# ============================================================================
+
+"""
+    compare_scenarios(scenarios, state, asset_classes)
+
+Compare impact of multiple scenarios on a portfolio.
+
+# Arguments
+- `scenarios::Vector{StressScenario}` - List of scenarios to compare
+- `state::SimulationState` - Current portfolio state
+- `asset_classes::Dict{Symbol,Symbol}` - Mapping of asset symbols to asset classes
+
+# Returns
+- `Vector{ScenarioImpact}` - Impact results for each scenario
+
+# Example
+```julia
+scenarios = [
+    CRISIS_SCENARIOS[:financial_crisis_2008],
+    CRISIS_SCENARIOS[:covid_crash_2020]
+]
+impacts = compare_scenarios(scenarios, state, asset_classes)
+```
+"""
+function compare_scenarios(
+    scenarios::Vector{StressScenario},
+    state::SimulationState,
+    asset_classes::Dict{Symbol,Symbol}
+)
+    return [scenario_impact(s, state, asset_classes) for s in scenarios]
+end
+
+"""
+    worst_case_scenario(scenarios, state, asset_classes)
+
+Find the scenario with worst portfolio impact.
+
+# Arguments
+- `scenarios::Vector{StressScenario}` - List of scenarios to evaluate
+- `state::SimulationState` - Current portfolio state
+- `asset_classes::Dict{Symbol,Symbol}` - Mapping of asset symbols to asset classes
+
+# Returns
+- `ScenarioImpact` - Impact of the worst-case scenario
+
+# Example
+```julia
+scenarios = [
+    CRISIS_SCENARIOS[:financial_crisis_2008],
+    CRISIS_SCENARIOS[:covid_crash_2020]
+]
+worst = worst_case_scenario(scenarios, state, asset_classes)
+println("Worst case: \$(worst.scenario_name) with \$(worst.pct_change * 100)% loss")
+```
+"""
+function worst_case_scenario(
+    scenarios::Vector{StressScenario},
+    state::SimulationState,
+    asset_classes::Dict{Symbol,Symbol}
+)
+    impacts = compare_scenarios(scenarios, state, asset_classes)
+    _, idx = findmin(i -> i.pct_change, impacts)
+    return impacts[idx]
+end
+
+# ============================================================================
+# Sensitivity Analysis
+# ============================================================================
+
+"""
+    SensitivityResult
+
+Result of a single sensitivity point.
+
+# Fields
+- `shock::Float64` - The shock level applied (e.g., -0.10 for -10%)
+- `portfolio_value::Float64` - Portfolio value after applying the shock
+- `pnl::Float64` - Profit/loss from the shock
+- `pct_change::Float64` - Percentage change in portfolio value
+"""
+struct SensitivityResult
+    shock::Float64
+    portfolio_value::Float64
+    pnl::Float64
+    pct_change::Float64
+end
+
+"""
+    sensitivity_analysis(state, asset_classes, target_class; shock_range)
+
+Analyze portfolio sensitivity to shocks in a specific asset class.
+
+# Arguments
+- `state::SimulationState` - Current portfolio state
+- `asset_classes::Dict{Symbol,Symbol}` - Mapping of asset symbols to asset classes
+- `target_class::Symbol` - Asset class to shock (e.g., :equity, :bond)
+- `shock_range::AbstractRange` - Range of shock levels to test (default: -0.50:0.05:0.50)
+
+# Returns
+- `Vector{SensitivityResult}` - Results for each shock level
+
+# Example
+```julia
+results = sensitivity_analysis(state, asset_classes, :equity; shock_range=-0.50:0.10:0.50)
+for r in results
+    println("Shock: \$(r.shock*100)% -> Value: \$(r.portfolio_value)")
+end
+```
+"""
+function sensitivity_analysis(
+    state::SimulationState,
+    asset_classes::Dict{Symbol,Symbol},
+    target_class::Symbol;
+    shock_range::AbstractRange=-0.50:0.05:0.50
+)
+    initial_value = portfolio_value(state)
+    results = SensitivityResult[]
+
+    for shock in shock_range
+        scenario = StressScenario(
+            "Sensitivity",
+            "Sensitivity analysis point",
+            Dict(target_class => shock),
+            1
+        )
+
+        stressed = apply_scenario(scenario, state, asset_classes)
+        new_value = portfolio_value(stressed)
+        pnl = new_value - initial_value
+
+        push!(results, SensitivityResult(shock, new_value, pnl, pnl / initial_value))
+    end
+
+    return results
+end
+
+# ============================================================================
 # Exports
 # ============================================================================
 
 export StressScenario, ScenarioImpact, CRISIS_SCENARIOS
 export apply_scenario, scenario_impact
+export compare_scenarios, worst_case_scenario
+export SensitivityResult, sensitivity_analysis
 
 end

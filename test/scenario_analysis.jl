@@ -150,4 +150,64 @@ using Dates
         @test impact_2008.pct_change < impact_covid.pct_change
         @test impact_covid.pct_change < impact_black_monday.pct_change
     end
+
+    @testset "Custom Hypothetical Scenarios" begin
+        # Create custom scenario
+        scenario = StressScenario(
+            "Rate Hike Shock",
+            "Hypothetical 500bp rate hike",
+            Dict(:equity => -0.15, :bond => -0.25, :reit => -0.30),
+            90
+        )
+
+        state = SimulationState(
+            timestamp=DateTime(2024, 1, 1),
+            cash=10_000.0,
+            positions=Dict(:SPY => 50.0, :AGG => 100.0, :VNQ => 30.0),
+            prices=Dict(:SPY => 450.0, :AGG => 100.0, :VNQ => 80.0)
+        )
+
+        asset_classes = Dict(:SPY => :equity, :AGG => :bond, :VNQ => :reit)
+
+        impact = scenario_impact(scenario, state, asset_classes)
+        @test impact.pct_change < 0
+
+        # Multi-scenario comparison
+        scenarios = [
+            scenario,
+            CRISIS_SCENARIOS[:financial_crisis_2008],
+            CRISIS_SCENARIOS[:covid_crash_2020]
+        ]
+
+        comparison = compare_scenarios(scenarios, state, asset_classes)
+        @test length(comparison) == 3
+        @test all(c -> c isa ScenarioImpact, comparison)
+
+        # Worst case
+        worst = worst_case_scenario(scenarios, state, asset_classes)
+        @test worst.pct_change == minimum(c.pct_change for c in comparison)
+    end
+
+    @testset "Sensitivity Analysis" begin
+        state = SimulationState(
+            timestamp=DateTime(2024, 1, 1),
+            cash=10_000.0,
+            positions=Dict(:SPY => 100.0),
+            prices=Dict(:SPY => 450.0)
+        )
+
+        asset_classes = Dict(:SPY => :equity)
+
+        # Sensitivity to equity shocks
+        results = sensitivity_analysis(
+            state,
+            asset_classes,
+            :equity;
+            shock_range=-0.50:0.10:0.50
+        )
+
+        @test length(results) == 11  # -50% to +50% in 10% steps
+        @test results[1].shock < results[end].shock
+        @test results[1].portfolio_value < results[end].portfolio_value
+    end
 end

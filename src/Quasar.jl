@@ -137,5 +137,7 @@ include("ScenarioAnalysis.jl")
 using .ScenarioAnalysis
 export StressScenario, ScenarioImpact, CRISIS_SCENARIOS
 export apply_scenario, scenario_impact
+export compare_scenarios, worst_case_scenario
+export SensitivityResult, sensitivity_analysis
 
 end
