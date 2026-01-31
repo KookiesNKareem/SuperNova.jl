@@ -90,6 +90,8 @@ jobs:
           echo 'var defined_versions = [];' > docs/build/.documenter/versions.js
           echo 'var defined_versions = [];' > docs/build/versions.js
           echo 'var defined_site = {};' > docs/build/.documenter/siteinfo.js
+          # Fix dead links from unresolved @ref in docstrings
+          sed -i "s/cleanUrls: true,/cleanUrls: true,\\n  ignoreDeadLinks: ['\\.\\/@ref'],/" docs/build/.documenter/.vitepress/config.mts
       - name: Build VitePress site
         working-directory: docs
         run: npm run docs:build

@@ -20,6 +20,8 @@ GreeksResult
 Stock
 EuropeanOption
 Portfolio
+value
+portfolio_greeks
 MarketState
 ```
 
@@ -122,10 +124,14 @@ RateCurve
 DiscountCurve
 ZeroCurve
 ForwardCurve
+NelsonSiegelCurve
+SvenssonCurve
 discount
 zero_rate
 forward_rate
 instantaneous_forward
+fit_nelson_siegel
+fit_svensson
 ```
 
 ### Interpolation

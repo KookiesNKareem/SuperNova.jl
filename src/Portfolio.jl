@@ -37,10 +37,10 @@ state = MarketState(
     volatilities=Dict("AAPL" => 0.2),
     timestamp=0.0
 )
-total_value = portfolio_value(portfolio, state)
+total_value = value(portfolio, state)
 ```
 
-See also: [`portfolio_value`](@ref), [`portfolio_greeks`](@ref)
+See also: [`value`](@ref), [`portfolio_greeks`](@ref)
 """
 struct Portfolio{I<:AbstractInstrument} <: AbstractPortfolio
     instruments::Vector{I}
