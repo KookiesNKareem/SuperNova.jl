@@ -24,6 +24,7 @@ makedocs(;
             "manual/backends.md",
             "manual/montecarlo.md",
             "manual/optimization.md",
+            "manual/interest-rates.md",
         ],
         "API Reference" => "api.md",
     ],

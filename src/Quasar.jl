@@ -73,4 +73,19 @@ include("MarketData.jl")
 using .MarketData
 export AbstractMarketData, AbstractPriceHistory, CSVAdapter, ParquetAdapter
 
+# Interest rates
+include("InterestRates.jl")
+using .InterestRates
+export RateCurve, DiscountCurve, ZeroCurve, ForwardCurve
+export discount, zero_rate, forward_rate, instantaneous_forward
+export LinearInterp, LogLinearInterp, CubicSplineInterp
+export DepositRate, FuturesRate, SwapRate, bootstrap
+export Bond, ZeroCouponBond, FixedRateBond, FloatingRateBond
+export yield_to_maturity, duration, modified_duration, convexity, dv01
+export accrued_interest, clean_price, dirty_price
+export ShortRateModel, Vasicek, CIR, HullWhite
+export bond_price, short_rate, simulate_short_rate
+export Caplet, Floorlet, Cap, Floor, Swaption
+export black_caplet, black_floorlet, black_cap, black_floor
+
 end

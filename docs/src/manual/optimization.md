@@ -34,24 +34,24 @@ result = optimize(sm)
 sharpe = (dot(result.weights, mu) - 0.02) / sqrt(result.weights' * Sigma * result.weights)
 ```
 
-### CVaR Minimization
+### CVaR Minimization (Planned)
 
 Minimize tail risk (Conditional Value at Risk):
 
 ```julia
-returns_matrix = randn(1000, 3) * 0.02  # Simulated returns
-
-cvar_obj = CVaRObjective(returns_matrix; alpha=0.95)
-result = optimize(cvar_obj)
+# Coming soon - CVaR optimization is planned but not yet implemented
+# cvar_obj = CVaRObjective(mu, Sigma; alpha=0.95)
+# result = optimize(cvar_obj)
 ```
 
-### Kelly Criterion
+### Kelly Criterion (Planned)
 
 Maximize long-term growth rate:
 
 ```julia
-kelly = KellyCriterion(mu, Sigma)
-result = optimize(kelly)
+# Coming soon - Kelly criterion optimization is planned but not yet implemented
+# kelly = KellyCriterion(mu, Sigma)
+# result = optimize(kelly)
 ```
 
 ## Using AD Backends

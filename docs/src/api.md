@@ -85,11 +85,12 @@ compute
 ```@docs
 MeanVariance
 SharpeMaximizer
-CVaRObjective
-KellyCriterion
 optimize
 OptimizationResult
 ```
+
+!!! note "Planned Features"
+    `CVaRObjective` and `KellyCriterion` types are defined but `optimize()` methods are not yet implemented.
 
 ## Stochastic Volatility Models
 
@@ -110,4 +111,79 @@ VolSurface
 calibrate_sabr
 calibrate_heston
 CalibrationResult
+```
+
+## Interest Rates
+
+### Yield Curves
+
+```@docs
+RateCurve
+DiscountCurve
+ZeroCurve
+ForwardCurve
+discount
+zero_rate
+forward_rate
+instantaneous_forward
+```
+
+### Interpolation
+
+```@docs
+LinearInterp
+LogLinearInterp
+CubicSplineInterp
+```
+
+### Bootstrapping
+
+```@docs
+DepositRate
+FuturesRate
+SwapRate
+bootstrap
+```
+
+### Bonds
+
+```@docs
+Bond
+ZeroCouponBond
+FixedRateBond
+FloatingRateBond
+yield_to_maturity
+duration
+modified_duration
+convexity
+dv01
+accrued_interest
+clean_price
+dirty_price
+```
+
+### Short-Rate Models
+
+```@docs
+ShortRateModel
+Vasicek
+CIR
+HullWhite
+bond_price
+short_rate
+simulate_short_rate
+```
+
+### Interest Rate Derivatives
+
+```@docs
+Caplet
+Floorlet
+Cap
+Floor
+Swaption
+black_caplet
+black_floorlet
+black_cap
+black_floor
 ```

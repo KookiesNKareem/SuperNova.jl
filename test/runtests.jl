@@ -12,4 +12,5 @@ using Quasar
     include("montecarlo.jl")
     include("full_pipeline.jl")
     include("backend_parity.jl")
+    include("interest_rates.jl")
 end

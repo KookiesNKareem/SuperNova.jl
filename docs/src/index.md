@@ -58,8 +58,9 @@ delta = mc_delta(S0, T, EuropeanCall(K), dynamics; backend=EnzymeBackend())
 | **Options Pricing** | Black-Scholes, Heston, SABR models |
 | **Monte Carlo** | European, Asian, barrier, American (LSM) |
 | **Greeks** | Analytical and AD-based sensitivities |
+| **Interest Rates** | Yield curves, bonds, short-rate models, caps/floors/swaptions |
 | **Calibration** | SABR and Heston model calibration |
-| **Optimization** | Mean-variance, Sharpe, CVaR objectives |
+| **Optimization** | Mean-variance, Sharpe maximization |
 | **Risk Measures** | VaR, CVaR, volatility, max drawdown |
 
 ## AD Backends

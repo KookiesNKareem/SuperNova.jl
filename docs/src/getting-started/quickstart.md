@@ -31,16 +31,16 @@ black_scholes(150.0, 155.0, 0.5, 0.05, 0.2, :call)
 
 ## Computing Greeks
 
-Greeks are computed via automatic differentiation:
+Greeks are computed using analytical Black-Scholes formulas for European options (fast and exact), with automatic differentiation as a fallback for exotic options:
 
 ```julia
 greeks = compute_greeks(option, state)
 
 greeks.delta  # ∂V/∂S - sensitivity to spot
 greeks.gamma  # ∂²V/∂S² - delta sensitivity
-greeks.vega   # ∂V/∂σ - sensitivity to volatility
-greeks.theta  # ∂V/∂t - time decay
-greeks.rho    # ∂V/∂r - sensitivity to rates
+greeks.vega   # ∂V/∂σ - per 1% vol move (scaled by 0.01)
+greeks.theta  # -∂V/∂T - time decay (negative convention)
+greeks.rho    # ∂V/∂r - per 1% rate move (scaled by 0.01)
 ```
 
 ## Portfolio Management
