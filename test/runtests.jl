@@ -35,4 +35,5 @@ using Quasar
     include("simulation.jl")
     include("backtesting.jl")
     include("scenario_analysis.jl")
+    include("research_toolkit.jl")
 end
