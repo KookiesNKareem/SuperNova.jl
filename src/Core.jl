@@ -54,11 +54,11 @@ Abstract type for risk measures (VaR, CVaR, etc.).
 abstract type AbstractRiskMeasure end
 
 """
-    AbstractADBackend
+    ADBackend
 
 Abstract type for automatic differentiation backends.
 """
-abstract type AbstractADBackend end
+abstract type ADBackend end
 
 # ============================================================================
 # Traits (Holy Traits Pattern)
@@ -156,7 +156,7 @@ end
 # ============================================================================
 
 export AbstractInstrument, AbstractEquity, AbstractDerivative, AbstractOption, AbstractFuture
-export AbstractPortfolio, AbstractRiskMeasure, AbstractADBackend
+export AbstractPortfolio, AbstractRiskMeasure, ADBackend
 export MarketState, ImmutableDict
 export Priceable, IsPriceable, NotPriceable
 export Differentiable, IsDifferentiable, NotDifferentiable

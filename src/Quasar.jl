@@ -4,7 +4,7 @@ module Quasar
 include("Core.jl")
 using .Core
 export AbstractInstrument, AbstractEquity, AbstractDerivative, AbstractOption, AbstractFuture
-export AbstractPortfolio, AbstractRiskMeasure, AbstractADBackend
+export AbstractPortfolio, AbstractRiskMeasure, ADBackend
 export MarketState
 export Priceable, IsPriceable, NotPriceable
 export Differentiable, IsDifferentiable, NotDifferentiable
@@ -16,8 +16,8 @@ export greeks_trait, hasgreeks, simulatable, issimulatable
 # AD backend system
 include("AD.jl")
 using .AD
-export PureJuliaBackend, ForwardDiffBackend, ReactantBackend
-export gradient, hessian, jacobian, current_backend, set_backend!
+export PureJuliaBackend, ForwardDiffBackend, ReactantBackend, EnzymeBackend
+export gradient, hessian, jacobian, value_and_gradient, current_backend, set_backend!, with_backend, enable_gpu!
 
 # Instruments
 include("Instruments.jl")
@@ -51,6 +51,14 @@ include("Calibration.jl")
 using .Calibration
 export OptionQuote, SmileData, VolSurface, CalibrationResult
 export calibrate_sabr, calibrate_heston
+
+# Monte Carlo simulation
+include("MonteCarlo.jl")
+using .MonteCarlo
+export GBMDynamics, HestonDynamics
+export EuropeanCall, EuropeanPut, AsianCall, AsianPut, UpAndOutCall, DownAndOutPut
+export AmericanPut, AmericanCall
+export MCResult, mc_price, mc_delta, mc_greeks, lsm_price
 
 # Market data
 include("MarketData.jl")

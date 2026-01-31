@@ -9,5 +9,7 @@ using Quasar
     include("risk.jl")
     include("optimization.jl")
     include("calibration.jl")
+    include("montecarlo.jl")
     include("full_pipeline.jl")
+    include("backend_parity.jl")
 end

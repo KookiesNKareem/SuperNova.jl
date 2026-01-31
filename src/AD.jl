@@ -1,41 +1,53 @@
 module AD
 
-using ..Core: AbstractADBackend
+using ..Core: ADBackend
 using ForwardDiff
+using DiffResults
 
 # ============================================================================
 # Backend Types
 # ============================================================================
 
 """
-    PureJuliaBackend <: AbstractADBackend
+    PureJuliaBackend <: ADBackend
 
 Reference implementation using finite differences. Slow but always works.
 Useful for debugging and testing.
 """
-struct PureJuliaBackend <: AbstractADBackend end
+struct PureJuliaBackend <: ADBackend end
 
 """
-    ForwardDiffBackend <: AbstractADBackend
+    ForwardDiffBackend <: ADBackend
 
 CPU-based forward-mode AD using ForwardDiff.jl.
 Best for low-dimensional problems and nested derivatives (Greeks).
 """
-struct ForwardDiffBackend <: AbstractADBackend end
+struct ForwardDiffBackend <: ADBackend end
 
 """
-    ReactantBackend <: AbstractADBackend
+    ReactantBackend <: ADBackend
 
 GPU-accelerated AD using Reactant.jl + Enzyme.
 Best for high-dimensional problems (portfolio optimization).
 """
-struct ReactantBackend <: AbstractADBackend end
+struct ReactantBackend <: ADBackend end
+
+"""
+    EnzymeBackend <: ADBackend
+
+CPU/GPU AD using Enzyme.jl (LLVM-based differentiation).
+Supports both forward and reverse mode.
+"""
+struct EnzymeBackend <: ADBackend
+    mode::Symbol  # :forward or :reverse
+end
+EnzymeBackend() = EnzymeBackend(:reverse)
 
 # ============================================================================
 # Global Backend State
 # ============================================================================
 
-const CURRENT_BACKEND = Ref{AbstractADBackend}(ForwardDiffBackend())
+const CURRENT_BACKEND = Ref{ADBackend}(ForwardDiffBackend())
 
 """
     current_backend()
@@ -45,13 +57,35 @@ Return the currently active AD backend.
 current_backend() = CURRENT_BACKEND[]
 
 """
-    set_backend!(backend::AbstractADBackend)
+    set_backend!(backend::ADBackend)
 
 Set the global AD backend.
 """
-function set_backend!(backend::AbstractADBackend)
+function set_backend!(backend::ADBackend)
     CURRENT_BACKEND[] = backend
     return backend
+end
+
+"""
+    with_backend(f, backend::ADBackend)
+
+Execute `f` with `backend` as the active backend, then restore the original.
+
+# Example
+```julia
+with_backend(EnzymeBackend()) do
+    gradient(loss, params)
+end
+```
+"""
+function with_backend(f, backend::ADBackend)
+    old = current_backend()
+    set_backend!(backend)
+    try
+        return f()
+    finally
+        set_backend!(old)
+    end
 end
 
 # ============================================================================
@@ -85,18 +119,32 @@ function _gradient(::PureJuliaBackend, f, x; eps=1e-7)
     return g
 end
 
-# Reactant implementation (placeholder - overridden by extension when Reactant is loaded)
-function _gradient(::ReactantBackend, f, x)
+# Fallback for unloaded backends
+function _gradient(b::ADBackend, f, x)
+    _throw_backend_not_loaded(b)
+end
+
+function _throw_backend_not_loaded(::ReactantBackend)
     error("""
     ReactantBackend requires Reactant.jl to be loaded.
 
     To use GPU acceleration:
-        using Pkg
-        Pkg.add("Reactant")
         using Reactant
         using Quasar
 
     Then set_backend!(ReactantBackend()) will work.
+    """)
+end
+
+function _throw_backend_not_loaded(::EnzymeBackend)
+    error("""
+    EnzymeBackend requires Enzyme.jl to be loaded.
+
+    To use Enzyme:
+        using Enzyme
+        using Quasar
+
+    Then set_backend!(EnzymeBackend()) will work.
     """)
 end
 
@@ -132,8 +180,9 @@ function _hessian(::PureJuliaBackend, f, x; eps=1e-5)
     return H
 end
 
-function _hessian(::ReactantBackend, f, x)
-    error("ReactantBackend requires Reactant.jl. See `_gradient` error for setup instructions.")
+# Fallback for unloaded backends
+function _hessian(b::ADBackend, f, x)
+    _throw_backend_not_loaded(b)
 end
 
 # ============================================================================
@@ -166,16 +215,101 @@ function _jacobian(::PureJuliaBackend, f, x; eps=1e-7)
     return J
 end
 
-function _jacobian(::ReactantBackend, f, x)
-    error("ReactantBackend requires Reactant.jl. See `_gradient` error for setup instructions.")
+# Fallback for unloaded backends
+function _jacobian(b::ADBackend, f, x)
+    _throw_backend_not_loaded(b)
+end
+
+# ============================================================================
+# Value and Gradient Interface
+# ============================================================================
+
+"""
+    value_and_gradient(f, x; backend=current_backend())
+
+Compute the value and gradient of `f` at `x` in a single pass.
+Returns `(f(x), ∇f(x))`.
+"""
+function value_and_gradient(f, x; backend=current_backend())
+    _value_and_gradient(backend, f, x)
+end
+
+function _value_and_gradient(::ForwardDiffBackend, f, x)
+    result = DiffResults.GradientResult(x)
+    ForwardDiff.gradient!(result, f, x)
+    (DiffResults.value(result), DiffResults.gradient(result))
+end
+
+function _value_and_gradient(::PureJuliaBackend, f, x)
+    val = f(x)
+    grad = _gradient(PureJuliaBackend(), f, x)
+    (val, grad)
+end
+
+# Fallback for unloaded backends
+function _value_and_gradient(b::ADBackend, f, x)
+    _throw_backend_not_loaded(b)
+end
+
+# ============================================================================
+# GPU Initialization
+# ============================================================================
+
+"""
+    enable_gpu!(backend::Symbol=:auto)
+
+Initialize GPU backend. Detects available hardware and loads appropriate extension.
+
+# Arguments
+- `:auto` - Prefer Reactant if available, fall back to Enzyme
+- `:enzyme` - Use Enzyme + CUDA.jl
+- `:reactant` - Use Reactant + XLA
+
+# Example
+```julia
+using Reactant
+using Quasar
+enable_gpu!()  # auto-detects Reactant
+```
+"""
+function enable_gpu!(backend::Symbol=:auto)
+    if backend == :auto
+        if isdefined(Main, :Reactant)
+            return _enable_reactant_gpu()
+        elseif isdefined(Main, :Enzyme)
+            return _enable_enzyme_gpu()
+        else
+            error("No GPU backend available. Run `using Reactant` or `using Enzyme` first.")
+        end
+    elseif backend == :reactant
+        isdefined(Main, :Reactant) || error("Reactant not loaded. Run `using Reactant` first.")
+        return _enable_reactant_gpu()
+    elseif backend == :enzyme
+        isdefined(Main, :Enzyme) || error("Enzyme not loaded. Run `using Enzyme` first.")
+        return _enable_enzyme_gpu()
+    else
+        error("Unknown backend: $backend. Use :auto, :enzyme, or :reactant.")
+    end
+end
+
+function _enable_reactant_gpu()
+    set_backend!(ReactantBackend())
+    @info "GPU enabled via Reactant (XLA backend)"
+    current_backend()
+end
+
+function _enable_enzyme_gpu()
+    set_backend!(EnzymeBackend())
+    @info "GPU enabled via Enzyme (CUDA backend)"
+    current_backend()
 end
 
 # ============================================================================
 # Exports
 # ============================================================================
 
-export PureJuliaBackend, ForwardDiffBackend, ReactantBackend
-export current_backend, set_backend!
-export gradient, hessian, jacobian
+export PureJuliaBackend, ForwardDiffBackend, ReactantBackend, EnzymeBackend
+export current_backend, set_backend!, with_backend, enable_gpu!
+export gradient, hessian, jacobian, value_and_gradient
 
 end

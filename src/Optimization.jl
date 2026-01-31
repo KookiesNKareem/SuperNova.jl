@@ -1,6 +1,6 @@
 module Optimization
 
-using ..Core: AbstractADBackend
+using ..Core: ADBackend
 using ..AD: gradient, current_backend, ForwardDiffBackend
 using LinearAlgebra
 
@@ -78,7 +78,7 @@ Optimize portfolio weights for given objective.
 function optimize end
 
 # Mean-Variance with target return (gradient descent with penalties)
-function optimize(mv::MeanVariance; target_return::Float64, max_iter=5000, tol=1e-10, lr=0.005)
+function optimize(mv::MeanVariance; target_return::Float64, backend=current_backend(), max_iter=5000, tol=1e-10, lr=0.005)
     μ = mv.expected_returns
     Σ = mv.cov_matrix
     n = length(μ)
@@ -102,7 +102,7 @@ function optimize(mv::MeanVariance; target_return::Float64, max_iter=5000, tol=1
             return var + ret_penalty + sum_penalty + neg_penalty
         end
 
-        g = gradient(obj, w; backend=ForwardDiffBackend())
+        g = gradient(obj, w; backend=backend)
 
         # Adaptive learning rate (decrease over time)
         current_lr = lr / (1 + i * 0.0001)
@@ -129,7 +129,7 @@ function optimize(mv::MeanVariance; target_return::Float64, max_iter=5000, tol=1
 end
 
 # Sharpe Maximizer (gradient-based)
-function optimize(sm::SharpeMaximizer; max_iter=1000, tol=1e-8, lr=0.1)
+function optimize(sm::SharpeMaximizer; backend=current_backend(), max_iter=1000, tol=1e-8, lr=0.1)
     μ = sm.expected_returns
     Σ = sm.cov_matrix
     rf = sm.rf
@@ -154,7 +154,7 @@ function optimize(sm::SharpeMaximizer; max_iter=1000, tol=1e-8, lr=0.1)
             return -sharpe + sum_penalty + neg_penalty
         end
 
-        g = gradient(neg_sharpe, w; backend=ForwardDiffBackend())
+        g = gradient(neg_sharpe, w; backend=backend)
         w_new = w - lr * g
 
         # Project to simplex

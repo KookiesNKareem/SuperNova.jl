@@ -9,7 +9,7 @@ using Quasar
         @test AbstractOption <: AbstractDerivative
         @test AbstractPortfolio <: Any
         @test AbstractRiskMeasure <: Any
-        @test AbstractADBackend <: Any
+        @test ADBackend <: Any
     end
 end
 
