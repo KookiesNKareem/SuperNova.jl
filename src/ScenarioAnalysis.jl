@@ -11,20 +11,25 @@ using ..Simulation: SimulationState, portfolio_value
 # ============================================================================
 
 """
-    StressScenario
+    StressScenario{T<:Real}
 
 Defines a stress scenario with shocks to different asset classes.
 
 # Fields
 - `name::String` - Human-readable scenario name
 - `description::String` - Detailed description of the historical event
-- `shocks::Dict{Symbol,Float64}` - Asset class to percent change mapping (e.g., -0.50 for -50%)
+- `shocks::Dict{Symbol,T}` - Asset class to percent change mapping (e.g., -0.50 for -50%)
 - `duration_days::Int` - Historical duration of the stress event
+
+# Type Parameter
+The type parameter `T` allows AD (automatic differentiation) to work through scenario
+calculations. For standard usage, `T=Float64`. For gradient computation via ForwardDiff,
+`T` will be `ForwardDiff.Dual`.
 """
-struct StressScenario
+struct StressScenario{T<:Real}
     name::String
     description::String
-    shocks::Dict{Symbol,Float64}  # asset_class => percent change (e.g., -0.50 for -50%)
+    shocks::Dict{Symbol,T}  # asset_class => percent change (e.g., -0.50 for -50%)
     duration_days::Int
 end
 
@@ -137,23 +142,30 @@ stressed_state = apply_scenario(scenario, state, asset_classes)
 ```
 """
 function apply_scenario(
-    scenario::StressScenario,
+    scenario::StressScenario{S},
     state::SimulationState{T},
     asset_classes::Dict{Symbol,Symbol}
-) where T
+) where {S,T}
+    # Promote types to support AD: when S is Dual (from ForwardDiff), the result
+    # should also be Dual to preserve gradient information
+    R = promote_type(S, T)
 
-    new_prices = Dict{Symbol,T}()
+    new_prices = Dict{Symbol,R}()
 
     for (sym, price) in state.prices
         asset_class = get(asset_classes, sym, :equity)  # Default to equity
-        shock = get(scenario.shocks, asset_class, 0.0)
+        shock = get(scenario.shocks, asset_class, zero(S))
         new_prices[sym] = price * (1 + shock)
     end
 
-    SimulationState{T}(
+    # Convert cash and positions to promoted type R for consistency
+    new_cash = convert(R, state.cash)
+    new_positions = Dict{Symbol,R}(k => convert(R, v) for (k, v) in state.positions)
+
+    SimulationState{R}(
         state.timestamp,
-        state.cash,
-        copy(state.positions),
+        new_cash,
+        new_positions,
         new_prices,
         copy(state.metadata)
     )
@@ -243,7 +255,7 @@ impacts = compare_scenarios(scenarios, state, asset_classes)
 ```
 """
 function compare_scenarios(
-    scenarios::Vector{StressScenario},
+    scenarios::Vector{<:StressScenario},
     state::SimulationState,
     asset_classes::Dict{Symbol,Symbol}
 )
@@ -274,7 +286,7 @@ println("Worst case: \$(worst.scenario_name) with \$(worst.pct_change * 100)% lo
 ```
 """
 function worst_case_scenario(
-    scenarios::Vector{StressScenario},
+    scenarios::Vector{<:StressScenario},
     state::SimulationState,
     asset_classes::Dict{Symbol,Symbol}
 )

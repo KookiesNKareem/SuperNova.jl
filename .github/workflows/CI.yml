@@ -34,7 +34,7 @@ jobs:
         arch:
           - x64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: julia-actions/setup-julia@v2
         with:
           version: ${{ matrix.version }}
@@ -59,11 +59,11 @@ jobs:
       pages: write
       id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: julia-actions/setup-julia@v2
         with:
           version: '1'
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: '20'
       - uses: julia-actions/cache@v2
@@ -90,6 +90,8 @@ jobs:
           echo 'var defined_versions = [];' > docs/build/.documenter/versions.js
           echo 'var defined_versions = [];' > docs/build/versions.js
           echo 'var defined_site = {};' > docs/build/.documenter/siteinfo.js
+          # Fix dead links from unresolved @ref in docstrings
+          sed -i "s/cleanUrls: true,/cleanUrls: true,\\n  ignoreDeadLinks: ['\\.\\/@ref'],/" docs/build/.documenter/.vitepress/config.mts
       - name: Build VitePress site
         working-directory: docs
         run: npm run docs:build

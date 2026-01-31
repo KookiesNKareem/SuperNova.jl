@@ -274,4 +274,30 @@ using Statistics: std
         # Negative correlation should reduce volatility
         @test std(proj_neg.terminal_values) < std(proj_corr.terminal_values)
     end
+
+    @testset "Differentiable Scenario Analysis" begin
+        using Quasar: gradient, ForwardDiffBackend
+
+        state = SimulationState(
+            timestamp=DateTime(2024, 1, 1),
+            cash=10_000.0,
+            positions=Dict(:SPY => 100.0),
+            prices=Dict(:SPY => 450.0)
+        )
+
+        asset_classes = Dict(:SPY => :equity)
+
+        # Gradient of portfolio value w.r.t. shock magnitude
+        function value_at_shock(shock_pct)
+            scenario = StressScenario("test", "", Dict(:equity => shock_pct), 1)
+            stressed = apply_scenario(scenario, state, asset_classes)
+            return portfolio_value(stressed)
+        end
+
+        # Should be able to compute gradient
+        grad = gradient(x -> value_at_shock(x[1]), [0.0]; backend=ForwardDiffBackend())
+
+        # Gradient should equal position value (dV/d_shock = position_value for linear shock)
+        @test grad[1] ≈ 100.0 * 450.0 atol=1.0
+    end
 end
