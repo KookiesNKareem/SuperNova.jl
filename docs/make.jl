@@ -1,5 +1,6 @@
 using Quasar
 using Documenter
+using DocumenterVitepress
 
 DocMeta.setdocmeta!(Quasar, :DocTestSetup, :(using Quasar); recursive=true)
 
@@ -7,19 +8,31 @@ makedocs(;
     modules=[Quasar],
     authors="Kareem Fareed",
     sitename="Quasar.jl",
-    format=Documenter.HTML(;
-        canonical="https://KookiesNKareem.github.io/Quasar.jl",
-        edit_link="main",
-        assets=String[],
+    format=DocumenterVitepress.MarkdownVitepress(
+        repo="https://github.com/KookiesNKareem/Quasar.jl",
+        devbranch="main",
+        devurl="dev",
     ),
     pages=[
         "Home" => "index.md",
-        "AD Backends" => "backends.md",
+        "Getting Started" => [
+            "getting-started/installation.md",
+            "getting-started/quickstart.md",
+        ],
+        "Manual" => [
+            "manual/backends.md",
+            "manual/montecarlo.md",
+            "manual/optimization.md",
+        ],
+        "API Reference" => "api.md",
     ],
     warnonly=true,
 )
 
 deploydocs(;
     repo="github.com/KookiesNKareem/Quasar.jl",
+    target="build",
     devbranch="main",
+    branch="gh-pages",
+    push_preview=true,
 )

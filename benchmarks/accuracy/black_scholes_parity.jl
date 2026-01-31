@@ -3,6 +3,7 @@
 
 using Quasar
 using Printf
+using Distributions: Normal, cdf
 
 """
     run_black_scholes_parity_benchmark(; verbose=true)
@@ -93,8 +94,6 @@ For ATM options (F=K), Black-76 call = exp(-rT) * F * (2*N(d1) - 1)
 where d1 = sigma * sqrt(T) / 2
 """
 function run_atm_vol_test(; verbose=true)
-    using Distributions: Normal, cdf
-
     results = []
     all_passed = true
     tolerance = 1e-12

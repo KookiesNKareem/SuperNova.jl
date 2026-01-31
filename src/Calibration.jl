@@ -1,6 +1,6 @@
 module Calibration
 
-using ..AD: gradient, ForwardDiffBackend
+using ..AD: gradient, ForwardDiffBackend, current_backend, ADBackend
 using ..Models: SABRParams, sabr_implied_vol, sabr_price, HestonParams, heston_price
 using LinearAlgebra: norm
 using Statistics: mean
@@ -76,7 +76,7 @@ end
 # ============================================================================
 
 """
-    calibrate_sabr(smile::SmileData; beta=0.5, max_iter=1000, tol=1e-8, lr=0.01)
+    calibrate_sabr(smile::SmileData; beta=0.5, max_iter=1000, tol=1e-8, lr=0.01, backend=current_backend())
 
 Calibrate SABR model to a single expiry volatility smile.
 
@@ -89,6 +89,7 @@ Uses gradient descent with automatic differentiation for optimization.
 - `max_iter` - Maximum gradient descent iterations
 - `tol` - Convergence tolerance on loss improvement
 - `lr` - Learning rate
+- `backend` - AD backend for gradient computation (default: current_backend())
 
 # Returns
 CalibrationResult with fitted SABRParams.
@@ -98,13 +99,17 @@ CalibrationResult with fitted SABRParams.
 quotes = [OptionQuote(K, 1.0, 0.0, :call, market_vol) for (K, market_vol) in market_data]
 smile = SmileData(1.0, 100.0, 0.05, quotes)
 result = calibrate_sabr(smile; beta=0.5)
+
+# With explicit GPU backend
+result = calibrate_sabr(smile; backend=ReactantBackend())
 ```
 """
 function calibrate_sabr(smile::SmileData;
                         beta::Float64=0.5,
                         max_iter::Int=1000,
                         tol::Float64=1e-8,
-                        lr::Float64=0.01)
+                        lr::Float64=0.01,
+                        backend::ADBackend=current_backend())
 
     F, T, r = smile.forward, smile.expiry, smile.rate
     quotes = smile.quotes
@@ -156,15 +161,16 @@ function calibrate_sabr(smile::SmileData;
     converged = false
     iter = 0
     prev_loss = Inf
+    current_lr = lr
 
     for i in 1:max_iter
         iter = i
 
         # Compute gradient using AD
-        g = gradient(loss, x; backend=ForwardDiffBackend())
+        g = gradient(loss, x; backend=backend)
 
         # Update with gradient descent
-        x_new = x - lr * g
+        x_new = x - current_lr * g
 
         current_loss = loss(x_new)
 
@@ -177,7 +183,7 @@ function calibrate_sabr(smile::SmileData;
 
         # Adaptive learning rate: reduce if loss increased
         if current_loss > prev_loss * 1.1
-            lr *= 0.5
+            current_lr *= 0.5
         end
 
         x = x_new
@@ -218,7 +224,7 @@ struct VolSurface
 end
 
 """
-    calibrate_heston(surface::VolSurface; max_iter=2000, tol=1e-8, lr=0.001)
+    calibrate_heston(surface::VolSurface; max_iter=2000, tol=1e-8, lr=0.001, backend=current_backend())
 
 Calibrate Heston model to a full volatility surface.
 
@@ -230,6 +236,7 @@ Heston parameters across all expiries in the surface.
 - `max_iter` - Maximum gradient descent iterations
 - `tol` - Convergence tolerance on loss improvement
 - `lr` - Learning rate
+- `backend` - AD backend for gradient computation (default: current_backend())
 
 # Returns
 CalibrationResult with fitted HestonParams.
@@ -239,12 +246,16 @@ CalibrationResult with fitted HestonParams.
 smiles = [SmileData(T, F, r, quotes) for (T, F, quotes) in market_data]
 surface = VolSurface(100.0, 0.05, smiles)
 result = calibrate_heston(surface)
+
+# With explicit GPU backend
+result = calibrate_heston(surface; backend=ReactantBackend())
 ```
 """
 function calibrate_heston(surface::VolSurface;
                           max_iter::Int=2000,
                           tol::Float64=1e-8,
-                          lr::Float64=0.001)
+                          lr::Float64=0.001,
+                          backend::ADBackend=current_backend())
 
     S, r = surface.spot, surface.rate
     smiles = surface.smiles
@@ -301,7 +312,7 @@ function calibrate_heston(surface::VolSurface;
         iter = i
 
         # Compute gradient using AD
-        g = gradient(loss, x; backend=ForwardDiffBackend())
+        g = gradient(loss, x; backend=backend)
 
         # Gradient clipping for stability
         g_norm = norm(g)
