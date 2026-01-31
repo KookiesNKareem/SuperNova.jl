@@ -3,7 +3,7 @@ module Quasar
 # Core must come first - defines abstract types
 include("Core/Core.jl")
 using .Core
-export AbstractInstrument, AbstractEquity, AbstractDerivative, AbstractOption
+export AbstractInstrument, AbstractEquity, AbstractDerivative, AbstractOption, AbstractFuture
 export AbstractPortfolio, AbstractRiskMeasure, AbstractADBackend
 export MarketState, Priceable, Differentiable, HasGreeks, Simulatable
 

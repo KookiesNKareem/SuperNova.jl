@@ -1,6 +1,6 @@
-using Quasar
 using Test
+using Quasar
 
 @testset "Quasar.jl" begin
-    # Write your tests here.
+    include("Core/test_core.jl")
 end
