@@ -8,4 +8,5 @@ using Quasar
     include("Portfolio/test_portfolio.jl")
     include("Risk/test_risk.jl")
     include("Optimization/test_optimization.jl")
+    include("integration/test_full_pipeline.jl")
 end
