@@ -23,8 +23,8 @@ makedocs(;
         "Examples" => [
             "examples/option-pricing.md",
             "examples/portfolio-risk.md",
-            "examples/yield-curve.md",
             "examples/monte-carlo-exotic.md",
+            "examples/yield-curve.md",
         ],
         "Manual" => [
             "manual/backends.md",

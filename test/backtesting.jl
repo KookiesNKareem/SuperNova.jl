@@ -196,4 +196,40 @@ using Dates
         # Default should_rebalance returns false
         @test !should_rebalance(DummyStrategy(), state)
     end
+
+    @testset "Backtest Runner" begin
+        # Create historical data
+        n_days = 252
+        timestamps = [DateTime(2024, 1, 1) + Day(i) for i in 0:n_days-1]
+
+        # Simulated price paths (simple random walk)
+        using Random
+        Random.seed!(42)
+        aapl_prices = 150.0 * cumprod(1 .+ 0.001 .* randn(n_days))
+        googl_prices = 140.0 * cumprod(1 .+ 0.001 .* randn(n_days))
+
+        price_series = Dict(
+            :AAPL => aapl_prices,
+            :GOOGL => googl_prices
+        )
+
+        # Run backtest
+        result = backtest(
+            BuyAndHoldStrategy(Dict(:AAPL => 0.6, :GOOGL => 0.4)),
+            timestamps,
+            price_series;
+            initial_cash=100_000.0
+        )
+
+        @test result isa BacktestResult
+        @test result.initial_value ≈ 100_000.0
+        @test length(result.equity_curve) == n_days
+        @test !isempty(result.trades)
+
+        # Metrics should be computed
+        @test haskey(result.metrics, :total_return)
+        @test haskey(result.metrics, :sharpe_ratio)
+        @test haskey(result.metrics, :max_drawdown)
+        @test haskey(result.metrics, :volatility)
+    end
 end

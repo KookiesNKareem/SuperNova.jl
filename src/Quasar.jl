@@ -103,7 +103,6 @@ import .MarketData: load, save
 # Interest rates
 include("InterestRates.jl")
 using .InterestRates
-# TODO: Export black_swaption (Swaption type exists but black_swaption not exported)
 export RateCurve, DiscountCurve, ZeroCurve, ForwardCurve
 export NelsonSiegelCurve, SvenssonCurve, fit_nelson_siegel, fit_svensson
 export discount, zero_rate, forward_rate, instantaneous_forward
@@ -131,5 +130,15 @@ include("Backtesting.jl")
 using .Backtesting
 export AbstractStrategy, generate_orders, should_rebalance
 export BuyAndHoldStrategy, RebalancingStrategy
+export BacktestResult, backtest, compute_backtest_metrics
+
+# Scenario Analysis
+include("ScenarioAnalysis.jl")
+using .ScenarioAnalysis
+export StressScenario, ScenarioImpact, CRISIS_SCENARIOS
+export apply_scenario, scenario_impact
+export compare_scenarios, worst_case_scenario
+export SensitivityResult, sensitivity_analysis
+export ProjectionResult, monte_carlo_projection
 
 end
