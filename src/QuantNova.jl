@@ -163,4 +163,28 @@ export compare_scenarios, worst_case_scenario
 export SensitivityResult, sensitivity_analysis
 export ProjectionResult, monte_carlo_projection
 
+# Statistical Testing
+include("Statistics.jl")
+using .Statistics
+export sharpe_ratio, sharpe_std_error, sharpe_confidence_interval
+export sharpe_t_stat, sharpe_pvalue
+export probabilistic_sharpe_ratio, deflated_sharpe_ratio
+export compare_sharpe_ratios
+export minimum_backtest_length, probability_of_backtest_overfitting
+export combinatorial_purged_cv_pbo
+export information_coefficient, hit_rate, hit_rate_significance
+
+# Factor Models
+include("FactorModels.jl")
+using .FactorModels
+export RegressionResult, factor_regression
+export capm_regression
+export FamaFrenchResult, fama_french_regression
+export construct_market_factor, construct_long_short_factor
+export AttributionResult, return_attribution
+export rolling_beta, rolling_alpha
+export StyleAnalysisResult, style_analysis
+export tracking_error, information_ratio
+export up_capture_ratio, down_capture_ratio, capture_ratio
+
 end
