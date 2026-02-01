@@ -29,8 +29,10 @@ Bonito = "824d6782-a2ef-11e9-3a09-e5662e0c26f8"
 QuantNovaEnzymeExt = "Enzyme"
 QuantNovaReactantExt = ["Enzyme", "Reactant"]
 QuantNovaMakieExt = ["Makie"]
+QuantNovaBonitoExt = ["Bonito", "WGLMakie"]
 
 [compat]
+Bonito = "3, 4"
 CairoMakie = "0.12, 0.13"
 DiffResults = "1"
 Distributions = "0.25.123"

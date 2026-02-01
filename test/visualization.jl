@@ -96,4 +96,28 @@ Random.seed!(42)
         ctx.cursor_time = nothing
         @test ctx.cursor_time === nothing
     end
+
+    @testset "Dashboard Construction" begin
+        result = BacktestResult(
+            10000.0, 12000.0,
+            Float64[], Float64[], DateTime[], Fill[],
+            Dict{Symbol,Float64}[], Dict{Symbol,Float64}()
+        )
+
+        # Build a dashboard
+        dashboard = Dashboard(
+            title = "Test Dashboard",
+            theme = :dark,
+            layout = [
+                Row(visualize(result, :equity), weight=2),
+                Row(visualize(result, :drawdown), visualize(result, :returns)),
+            ]
+        )
+
+        @test dashboard.title == "Test Dashboard"
+        @test dashboard.theme == :dark
+        @test length(dashboard.layout) == 2
+        @test dashboard.layout[1].weight == 2
+        @test length(dashboard.layout[2].items) == 2
+    end
 end

@@ -183,4 +183,58 @@ export visualize, set_theme!, get_theme, available_views
 export LIGHT_THEME, DARK_THEME, COLORS
 export render
 
+# ============================================================================
+# Dashboard Types
+# ============================================================================
+
+"""
+    Row(items...; weight=1)
+
+A row in a dashboard layout.
+"""
+struct Row
+    items::Vector{Any}
+    weight::Int
+
+    Row(items...; weight=1) = new(collect(items), weight)
+end
+
+"""
+    Dashboard
+
+A multi-panel dashboard layout.
+
+# Example
+```julia
+dashboard = Dashboard(
+    title = "Strategy Monitor",
+    theme = :dark,
+    layout = [
+        Row(visualize(result, :equity), weight=2),
+        Row(visualize(result, :drawdown), visualize(result, :returns)),
+    ]
+)
+serve(dashboard)
+```
+"""
+struct Dashboard
+    title::String
+    theme::Symbol
+    layout::Vector{Row}
+
+    function Dashboard(; title="Dashboard", theme=:light, layout=Row[])
+        new(title, theme, layout)
+    end
+end
+
+"""
+    serve(item; port=8080)
+
+Serve a visualization or dashboard in the browser.
+Requires WGLMakie and Bonito to be loaded.
+"""
+function serve end
+
+export Row, Dashboard, serve
+
 end # module
