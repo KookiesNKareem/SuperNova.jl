@@ -80,9 +80,9 @@
         # Calibrate
         result = calibrate_sabr(smile; beta=1.0, max_iter=3000, lr=0.01)
 
-        @test result.converged
         # SABR has identifiability issues - different (α,ρ,ν) can produce similar smiles
         # Focus on fit quality rather than exact parameter recovery
+        @test result.converged  # Should converge via gradient norm or loss plateau
         @test result.rmse < 0.01  # Implied vol RMSE < 1%
 
         # The calibrated model should reproduce the smile reasonably well

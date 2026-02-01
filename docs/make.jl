@@ -21,6 +21,7 @@ makedocs(;
             "getting-started/quickstart.md",
         ],
         "Examples" => [
+            "examples/pricing-calibration-demo.md",
             "examples/option-pricing.md",
             "examples/portfolio-risk.md",
             "examples/monte-carlo-exotic.md",

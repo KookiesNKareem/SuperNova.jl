@@ -150,25 +150,35 @@ end
 
 Calibrate SABR model to a single expiry volatility smile.
 
-Uses gradient descent with automatic differentiation for optimization.
+Uses Adam optimizer with multi-start initialization for robust global optimization.
+Tries multiple initial values for ν (vol-of-vol) and picks the best fit.
 β is typically fixed (0.5 for rates, 1.0 for equities).
 
 # Arguments
 - `smile` - Market smile data for a single expiry
 - `beta` - CEV exponent (fixed during calibration)
-- `max_iter` - Maximum gradient descent iterations
-- `tol` - Convergence tolerance on loss improvement
-- `lr` - Learning rate
+- `max_iter` - Maximum optimizer iterations (distributed across multi-start runs)
+- `tol` - Convergence tolerance for gradient norm and loss plateau detection
+- `lr` - Learning rate for Adam optimizer
 - `backend` - AD backend for gradient computation (default: current_backend())
 
 # Returns
-CalibrationResult with fitted SABRParams.
+CalibrationResult with fitted SABRParams containing:
+- `params` - Calibrated SABRParams (α, β, ρ, ν)
+- `rmse` - Root mean squared error in implied vol terms
+- `converged` - Whether optimizer converged (gradient norm < tol OR loss plateau for 20 iterations)
+- `iterations` - Total iterations across all multi-start runs
 
 # Example
 ```julia
 quotes = [OptionQuote(K, 1.0, 0.0, :call, market_vol) for (K, market_vol) in market_data]
 smile = SmileData(1.0, 100.0, 0.05, quotes)
 result = calibrate_sabr(smile; beta=0.5)
+
+# Check fit quality
+if result.rmse > 0.01
+    @warn "Poor fit, RMSE = \$(result.rmse)"
+end
 
 # With explicit GPU backend
 result = calibrate_sabr(smile; backend=ReactantBackend())
@@ -208,12 +218,12 @@ function calibrate_sabr(smile::SmileData;
         ρ_init = clamp(-skew * 2, -0.8, 0.8)  # Heuristic mapping
     end
 
-    # Pack free parameters: [α, ρ_unbounded, log_ν]
+    # Pack free parameters: [log_α, ρ_unbounded, log_ν]
     # Transformations ensure constraints:
-    #   α > 0 via abs()
+    #   α > 0 via exp()
     #   -1 < ρ < 1 via tanh()
     #   ν > 0 via exp()
-    x = [α_init, atanh(clamp(ρ_init, -0.99, 0.99)), log(0.3)]
+    x = [log(α_init), atanh(clamp(ρ_init, -0.99, 0.99)), log(0.3)]
 
     # Check if using GPU backend - use vectorized loss
     use_gpu = backend isa ReactantBackend
@@ -226,7 +236,7 @@ function calibrate_sabr(smile::SmileData;
         ν_raw = _extract_param(params, MASK_3_3)
 
         # Transform to constrained space
-        α = abs(α_raw)
+        α = exp(α_raw)
         ρ = tanh(ρ_raw)
         ν = exp(ν_raw)
 
@@ -241,7 +251,7 @@ function calibrate_sabr(smile::SmileData;
 
     # CPU loss function (original, slightly faster for CPU)
     function loss_cpu(params)
-        α = abs(params[1])
+        α = exp(params[1])
         ρ = tanh(params[2])
         ν = exp(params[3])
 
@@ -258,50 +268,93 @@ function calibrate_sabr(smile::SmileData;
     # Select loss function based on backend
     loss = use_gpu ? loss_gpu : loss_cpu
 
-    # Gradient descent with AD
-    converged = false
-    iter = 0
-    prev_loss = Inf
-    current_lr = lr
+    # Adam optimizer with multi-start for robustness
+    function adam_optimize(x0, max_iter, lr)
+        x = copy(x0)
+        m = zeros(length(x))  # First moment
+        v = zeros(length(x))  # Second moment
+        β1, β2, ε = 0.9, 0.999, 1e-8
 
-    for i in 1:max_iter
-        iter = i
+        best_x = copy(x)
+        best_loss = loss(x)
+        prev_loss = best_loss
+        converged = false
+        stall_count = 0
+        iter = 0
 
-        # Compute gradient using AD
-        g = gradient(loss, x; backend=backend)
+        for i in 1:max_iter
+            iter = i
+            g = gradient(loss, x; backend=backend)
 
-        # Update with gradient descent
-        x_new = x - current_lr * g
+            # Adam update
+            m = β1 * m + (1 - β1) * g
+            v = β2 * v + (1 - β2) * (g .^ 2)
+            m_hat = m / (1 - β1^i)
+            v_hat = v / (1 - β2^i)
+            x = x - lr * m_hat ./ (sqrt.(v_hat) .+ ε)
 
-        current_loss = loss(x_new)
+            current_loss = loss(x)
+            if current_loss < best_loss
+                best_loss = current_loss
+                best_x = copy(x)
+            end
 
-        # Check convergence
-        if abs(current_loss - prev_loss) < tol
-            converged = true
-            x = x_new
-            break
+            # Convergence: gradient norm OR loss plateau
+            if norm(g) < tol
+                converged = true
+                break
+            end
+
+            # Plateau detection: loss not improving significantly
+            # Use both relative and absolute criteria for robustness
+            abs_improvement = abs(current_loss - prev_loss)
+            rel_improvement = abs_improvement / (abs(prev_loss) + 1e-12)
+            if abs_improvement < tol || rel_improvement < 1e-6
+                stall_count += 1
+                if stall_count >= 20
+                    converged = true
+                    break
+                end
+            else
+                stall_count = 0
+            end
+            prev_loss = current_loss
         end
-
-        # Adaptive learning rate: reduce if loss increased
-        if current_loss > prev_loss * 1.1
-            current_lr *= 0.5
-        end
-
-        x = x_new
-        prev_loss = current_loss
+        return best_x, best_loss, converged, iter
     end
 
+    # Multi-start: try several initial guesses for ν
+    ν_inits = [0.1, 0.3, 0.5, 1.0, 2.0]
+    best_x = x
+    best_loss = Inf
+    best_converged = false
+    total_iter = 0
+
+    for ν_init in ν_inits
+        x0 = [x[1], x[2], log(ν_init)]
+        x_opt, loss_opt, conv, iter = adam_optimize(x0, max_iter ÷ length(ν_inits), lr)
+        total_iter += iter
+        if loss_opt < best_loss
+            best_loss = loss_opt
+            best_x = x_opt
+            best_converged = conv
+        end
+    end
+
+    # Final polish with more iterations from best point
+    best_x, best_loss, best_converged, polish_iter = adam_optimize(best_x, max_iter ÷ 2, lr * 0.1)
+    total_iter += polish_iter
+
     # Extract final parameters
-    α = abs(x[1])
-    ρ = tanh(x[2])
-    ν = exp(x[3])
+    α = exp(best_x[1])
+    ρ = tanh(best_x[2])
+    ν = exp(best_x[3])
     final_params = SABRParams(α, beta, ρ, ν)
 
     # Compute RMSE
-    final_loss = loss(x)
-    rmse = sqrt(final_loss)
+    rmse = sqrt(best_loss)
 
-    return CalibrationResult(final_params, final_loss, converged, iter, rmse)
+    return CalibrationResult(final_params, best_loss, best_converged, total_iter, rmse)
 end
 
 # TODO: Add Feller condition constraint (2κθ > σ²) during optimization
