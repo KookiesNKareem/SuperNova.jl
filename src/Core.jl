@@ -116,6 +116,7 @@ ImmutableDict(d::Dict{K,V}) where {K,V} = ImmutableDict{K,V}(d)
 
 @inline Base.getindex(d::ImmutableDict, k) = d.data[k]
 @inline Base.haskey(d::ImmutableDict, k) = haskey(d.data, k)
+@inline Base.get(d::ImmutableDict, k, default) = get(d.data, k, default)
 Base.keys(d::ImmutableDict) = keys(d.data)
 Base.values(d::ImmutableDict) = values(d.data)
 Base.length(d::ImmutableDict) = length(d.data)

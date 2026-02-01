@@ -81,13 +81,12 @@ differentiable(::Type{EuropeanOption}) = IsDifferentiable()
 greeks_trait(::Type{EuropeanOption}) = HasGreeksTrait()
 
 # Black-Scholes pricing
-# TODO: Support multiple rates (currency-specific)
 # TODO: Add dividend yield support
-function price(opt::EuropeanOption, state::MarketState)
+function price(opt::EuropeanOption, state::MarketState; currency::String="USD")
     S = state.prices[opt.underlying]
     K = opt.strike
     T = opt.expiry
-    r = first(values(state.rates))  # FIXME: Assumes single rate - add currency support
+    r = get(state.rates, currency, first(values(state.rates)))
     σ = state.volatilities[opt.underlying]
 
     return black_scholes(S, K, T, r, σ, opt.optiontype)
@@ -179,17 +178,17 @@ differentiable(::Type{AmericanOption}) = IsDifferentiable()
 greeks_trait(::Type{AmericanOption}) = HasGreeksTrait()
 
 """
-    price(opt::AmericanOption, state::MarketState; method=:crr, nsteps=100)
+    price(opt::AmericanOption, state::MarketState; method=:crr, nsteps=100, currency="USD")
 
 Price an American option using binomial tree (CRR method).
 
 For Monte Carlo pricing, use `lsm_price()` from the MonteCarlo module.
 """
-function price(opt::AmericanOption, state::MarketState; method::Symbol=:crr, nsteps::Int=100)
+function price(opt::AmericanOption, state::MarketState; method::Symbol=:crr, nsteps::Int=100, currency::String="USD")
     S = state.prices[opt.underlying]
     K = opt.strike
     T = opt.expiry
-    r = first(values(state.rates))
+    r = get(state.rates, currency, first(values(state.rates)))
     σ = state.volatilities[opt.underlying]
 
     return american_binomial(S, K, T, r, σ, opt.optiontype, nsteps)
@@ -272,18 +271,18 @@ priceable(::Type{AsianOption}) = IsPriceable()
 differentiable(::Type{AsianOption}) = IsDifferentiable()
 
 """
-    price(opt::AsianOption, state::MarketState; nsteps=252)
+    price(opt::AsianOption, state::MarketState; nsteps=252, currency="USD")
 
 Price an Asian option using closed-form geometric approximation or Turnbull-Wakeman
 for arithmetic averaging.
 
 For more accurate pricing, use `mc_price()` with `AsianCall`/`AsianPut` payoffs.
 """
-function price(opt::AsianOption, state::MarketState; nsteps::Int=252)
+function price(opt::AsianOption, state::MarketState; nsteps::Int=252, currency::String="USD")
     S = state.prices[opt.underlying]
     K = opt.strike
     T = opt.expiry
-    r = first(values(state.rates))
+    r = get(state.rates, currency, first(values(state.rates)))
     σ = state.volatilities[opt.underlying]
 
     if opt.averaging == :geometric

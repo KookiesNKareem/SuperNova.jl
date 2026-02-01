@@ -53,11 +53,16 @@ struct Volatility <: AbstractRiskMeasure end
     Sharpe <: AbstractRiskMeasure
 
 Sharpe ratio (excess return / volatility).
+
+# Fields
+- `rf::Float64` - Annualized risk-free rate (e.g., 0.05 for 5%)
+- `periods_per_year::Int` - Number of return periods per year (252 for daily, 52 for weekly, 12 for monthly)
 """
 struct Sharpe <: AbstractRiskMeasure
-    rf::Float64  # Risk-free rate
+    rf::Float64
+    periods_per_year::Int
 
-    Sharpe(; rf::Float64=0.0) = new(rf)
+    Sharpe(; rf::Float64=0.0, periods_per_year::Int=252) = new(rf, periods_per_year)
 end
 
 """
@@ -99,10 +104,9 @@ function compute(::Volatility, returns::AbstractVector)
 end
 
 # Sharpe implementation
-# TODO: Make frequency configurable (daily, weekly, monthly)
-# TODO: Add annualization option
 function compute(sharpe::Sharpe, returns::AbstractVector)
-    excess_return = mean(returns) - sharpe.rf / 252  # FIXME: Hard-coded 252 days
+    rf_per_period = sharpe.rf / sharpe.periods_per_year
+    excess_return = mean(returns) - rf_per_period
     vol = std(returns)
     return excess_return / vol
 end
