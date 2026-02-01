@@ -37,6 +37,8 @@ using QuantNova
     include("backtesting.jl")
     include("scenario_analysis.jl")
     include("research_toolkit.jl")
+    include("statistics.jl")
+    include("factor_models.jl")
 
     # Live data tests (requires network, skipped by default)
     # Run with: QUANTNOVA_TEST_LIVE_DATA=1 julia --project=. -e 'using Pkg; Pkg.test()'
