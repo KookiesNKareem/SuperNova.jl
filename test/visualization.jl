@@ -139,4 +139,46 @@ Random.seed!(42)
         # This just tests the spec is exportable
         @test hasmethod(available_views, Tuple{BacktestResult})
     end
+
+    @testset "Edge Cases" begin
+        # Empty result
+        empty_result = BacktestResult(
+            10000.0, 10000.0,
+            Float64[], Float64[], DateTime[], Fill[],
+            Dict{Symbol,Float64}[], Dict{Symbol,Float64}()
+        )
+
+        spec = visualize(empty_result)
+        @test spec isa VisualizationSpec
+        @test spec.view == :dashboard
+
+        # Single point
+        single_result = BacktestResult(
+            10000.0, 10000.0,
+            [10000.0], [0.0], [DateTime(2024, 1, 1)], Fill[],
+            [Dict{Symbol,Float64}()], Dict{Symbol,Float64}()
+        )
+
+        spec = visualize(single_result, :equity)
+        @test spec.view == :equity
+    end
+
+    @testset "OptimizationResult Visualization" begin
+        opt_result = OptimizationResult(
+            [0.3, 0.3, 0.2, 0.2],
+            0.04,
+            true,
+            100
+        )
+
+        spec = visualize(opt_result)
+        @test spec.view == :frontier
+
+        spec = visualize(opt_result, :weights)
+        @test spec.view == :weights
+
+        views = available_views(opt_result)
+        @test :frontier in views
+        @test :weights in views
+    end
 end
