@@ -379,7 +379,8 @@ function render_rolling(spec::VisualizationSpec{BacktestResult})
         rolling_vol[i] = σ * sqrt(252)
     end
 
-    rolling_timestamps = timestamps[window:end]
+    # Note: timestamps has length(returns)+1, so align rolling metrics with end of each window
+    rolling_timestamps = timestamps[(window+1):(window+length(rolling_sharpe))]
     ts_sharpe, sharpe_down = downsample_for_display(rolling_timestamps, rolling_sharpe)
     ts_vol, vol_down = downsample_for_display(rolling_timestamps, rolling_vol)
 

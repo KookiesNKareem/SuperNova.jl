@@ -44,12 +44,15 @@ include("Optimization.jl")
 using .Optimization
 export optimize, MeanVariance, SharpeMaximizer, CVaRObjective, KellyCriterion, OptimizationResult
 export AbstractOptimizationObjective, AbstractConstraint, AbstractSolver, AbstractCovarianceEstimator
+export ValidationResult, validate_cov_matrix, validate_expected_returns
+export throw_on_invalid, warn_on_invalid, regularize_covariance, ensure_valid_covariance
+export OptimizationHistory
 export FullInvestmentConstraint, LongOnlyConstraint, BoxConstraint
 export GroupConstraint, TurnoverConstraint, CardinalityConstraint
 export standard_constraints, check_constraint_violation, check_all_constraints
-export QPSolver, LBFGSSolver, ProjectedGradientSolver, CMAESSolver
+export QPSolver, LBFGSSolver, ProjectedGradientSolver, CMAESSolver, DESolver
 export project_simplex, project_constraints, solve_qp, solve_min_variance_qp
-export solve_lbfgs, solve_projected_gradient, solve_cmaes
+export solve_lbfgs, solve_projected_gradient, solve_cmaes, solve_de
 export MinimumVariance, RiskParity, MaximumDiversification, BlackLitterman
 export compute_risk_contributions, compute_fractional_risk_contributions
 export compute_marginal_risk, compute_component_risk, compute_beta

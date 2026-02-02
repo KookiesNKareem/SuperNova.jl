@@ -39,6 +39,306 @@ Base type for covariance matrix estimators.
 abstract type AbstractCovarianceEstimator end
 
 # ============================================================================
+# Input Validation & Covariance Regularization
+# ============================================================================
+
+"""
+    ValidationResult
+
+Result of input validation with status and messages.
+"""
+struct ValidationResult
+    valid::Bool
+    errors::Vector{String}
+    warnings::Vector{String}
+end
+
+ValidationResult() = ValidationResult(true, String[], String[])
+
+function Base.show(io::IO, v::ValidationResult)
+    if v.valid && isempty(v.warnings)
+        print(io, "ValidationResult: OK")
+    elseif v.valid
+        print(io, "ValidationResult: OK with $(length(v.warnings)) warning(s)")
+    else
+        print(io, "ValidationResult: FAILED with $(length(v.errors)) error(s)")
+    end
+end
+
+"""
+    validate_cov_matrix(Σ; warn_condition=true, condition_threshold=1e10) -> ValidationResult
+
+Validate a covariance matrix for portfolio optimization.
+
+# Checks performed:
+- Matrix is square
+- Matrix is symmetric (within tolerance)
+- Matrix is positive semi-definite (all eigenvalues ≥ 0)
+- No NaN or Inf values
+- Condition number is reasonable (warns if > threshold)
+"""
+function validate_cov_matrix(Σ::AbstractMatrix;
+                             warn_condition::Bool=true,
+                             condition_threshold::Float64=1e10)
+    errors = String[]
+    warnings = String[]
+    n = size(Σ, 1)
+
+    # Check square
+    if size(Σ, 1) != size(Σ, 2)
+        push!(errors, "Covariance matrix must be square, got $(size(Σ))")
+        return ValidationResult(false, errors, warnings)
+    end
+
+    # Check for NaN/Inf
+    if any(isnan, Σ)
+        push!(errors, "Covariance matrix contains NaN values")
+    end
+    if any(isinf, Σ)
+        push!(errors, "Covariance matrix contains Inf values")
+    end
+
+    if !isempty(errors)
+        return ValidationResult(false, errors, warnings)
+    end
+
+    # Check symmetry
+    max_asym = maximum(abs.(Σ - Σ'))
+    if max_asym > 1e-10
+        push!(errors, "Covariance matrix is not symmetric (max asymmetry: $(max_asym))")
+    end
+
+    # Check positive semi-definite via eigenvalues
+    eigenvals = eigvals(Symmetric(Σ))
+    min_eigenval = minimum(eigenvals)
+    if min_eigenval < -1e-10
+        push!(errors, "Covariance matrix is not positive semi-definite (min eigenvalue: $(min_eigenval))")
+    elseif min_eigenval < 0
+        push!(warnings, "Covariance matrix has small negative eigenvalue ($(min_eigenval)), likely numerical noise")
+    end
+
+    # Check condition number
+    if warn_condition && min_eigenval > 0
+        max_eigenval = maximum(eigenvals)
+        cond_num = max_eigenval / min_eigenval
+        if cond_num > condition_threshold
+            push!(warnings, "Covariance matrix is poorly conditioned (condition number: $(round(cond_num, sigdigits=3))). Consider regularization.")
+        end
+    end
+
+    # Check for zero variance assets
+    zero_var_assets = findall(diag(Σ) .< 1e-12)
+    if !isempty(zero_var_assets)
+        push!(warnings, "Assets $(zero_var_assets) have near-zero variance")
+    end
+
+    ValidationResult(isempty(errors), errors, warnings)
+end
+
+"""
+    validate_expected_returns(μ, Σ) -> ValidationResult
+
+Validate expected returns vector against covariance matrix.
+"""
+function validate_expected_returns(μ::AbstractVector, Σ::AbstractMatrix)
+    errors = String[]
+    warnings = String[]
+
+    if length(μ) != size(Σ, 1)
+        push!(errors, "Expected returns length ($(length(μ))) must match covariance matrix size ($(size(Σ, 1)))")
+    end
+
+    if any(isnan, μ)
+        push!(errors, "Expected returns contain NaN values")
+    end
+    if any(isinf, μ)
+        push!(errors, "Expected returns contain Inf values")
+    end
+
+    # Warn on extreme values
+    if any(abs.(μ) .> 1.0)
+        push!(warnings, "Expected returns contain values > 100%, ensure these are annualized correctly")
+    end
+
+    ValidationResult(isempty(errors), errors, warnings)
+end
+
+"""
+    throw_on_invalid(result::ValidationResult)
+
+Throw ArgumentError if validation failed, log warnings otherwise.
+"""
+function throw_on_invalid(result::ValidationResult)
+    if !result.valid
+        throw(ArgumentError("Validation failed: " * join(result.errors, "; ")))
+    end
+    for w in result.warnings
+        @warn w
+    end
+end
+
+"""
+    warn_on_invalid(result::ValidationResult)
+
+Log all errors as warnings instead of throwing. Returns validity status.
+"""
+function warn_on_invalid(result::ValidationResult)
+    for e in result.errors
+        @warn "Validation error: $e"
+    end
+    for w in result.warnings
+        @warn w
+    end
+    result.valid
+end
+
+"""
+    regularize_covariance(Σ; method=:ledoit_wolf, target_condition=1e6) -> Matrix
+
+Regularize an ill-conditioned covariance matrix.
+
+# Methods:
+- `:ledoit_wolf` - Shrinkage toward scaled identity (default)
+- `:eigenvalue_clip` - Clip small eigenvalues to threshold
+- `:diagonal_load` - Add small constant to diagonal
+
+# Arguments
+- `method`: Regularization method
+- `target_condition`: Target condition number (default: 1e6)
+"""
+function regularize_covariance(Σ::AbstractMatrix;
+                               method::Symbol=:ledoit_wolf,
+                               target_condition::Float64=1e6)
+    n = size(Σ, 1)
+    Σ_sym = Symmetric(Σ)
+
+    eigenvals = eigvals(Σ_sym)
+    max_eig = maximum(eigenvals)
+    min_eig = minimum(eigenvals)
+
+    # Check if regularization is needed
+    if min_eig > 0 && max_eig / min_eig < target_condition
+        return Matrix(Σ_sym)  # Already well-conditioned
+    end
+
+    if method == :ledoit_wolf
+        # Shrink toward scaled identity matrix
+        # Target = (trace(Σ)/n) * I
+        μ = tr(Σ) / n
+
+        # Compute optimal shrinkage intensity (simplified Ledoit-Wolf)
+        # δ² = average squared deviation from mean correlation
+        Σ_scaled = Σ ./ sqrt.(diag(Σ) * diag(Σ)')
+        off_diag = [Σ_scaled[i,j] for i in 1:n for j in 1:n if i != j]
+
+        # Shrinkage intensity based on condition number
+        current_cond = max_eig / max(min_eig, 1e-15)
+        α = min(1.0, log10(current_cond) / log10(target_condition))
+        α = clamp(α, 0.0, 0.99)
+
+        # Shrink toward diagonal
+        Σ_reg = (1 - α) * Σ + α * μ * I
+        return Matrix(Symmetric(Σ_reg))
+
+    elseif method == :eigenvalue_clip
+        # Clip small eigenvalues
+        eigen_result = eigen(Σ_sym)
+        min_allowed = max_eig / target_condition
+        D_clipped = max.(eigen_result.values, min_allowed)
+        Σ_reg = eigen_result.vectors * Diagonal(D_clipped) * eigen_result.vectors'
+        return Matrix(Symmetric(Σ_reg))
+
+    elseif method == :diagonal_load
+        # Add constant to diagonal
+        load = max_eig / target_condition - min_eig
+        if load > 0
+            Σ_reg = Σ + load * I
+            return Matrix(Symmetric(Σ_reg))
+        end
+        return Matrix(Σ_sym)
+    else
+        throw(ArgumentError("Unknown regularization method: $method"))
+    end
+end
+
+"""
+    ensure_valid_covariance(Σ; regularize=true, method=:ledoit_wolf) -> Matrix
+
+Validate and optionally regularize covariance matrix.
+Returns the (possibly regularized) matrix or throws on fatal errors.
+"""
+function ensure_valid_covariance(Σ::AbstractMatrix;
+                                  regularize::Bool=true,
+                                  method::Symbol=:ledoit_wolf,
+                                  target_condition::Float64=1e6)
+    result = validate_cov_matrix(Σ; warn_condition=false)
+
+    # Fatal errors cannot be fixed
+    for e in result.errors
+        if occursin("square", e) || occursin("NaN", e) || occursin("Inf", e) || occursin("symmetric", e)
+            throw(ArgumentError(e))
+        end
+    end
+
+    # Try to fix PSD and conditioning issues
+    if regularize && (!result.valid || any(w -> occursin("conditioned", w), result.warnings))
+        Σ_reg = regularize_covariance(Σ; method=method, target_condition=target_condition)
+        @info "Covariance matrix regularized using $method method"
+        return Σ_reg
+    end
+
+    # Log warnings
+    for w in result.warnings
+        @warn w
+    end
+
+    return Matrix(Symmetric(Σ))
+end
+
+# ============================================================================
+# Optimization History Tracking
+# ============================================================================
+
+"""
+    OptimizationHistory
+
+Records convergence history during optimization.
+"""
+mutable struct OptimizationHistory
+    objectives::Vector{Float64}      # Best objective per iteration
+    mean_fitness::Vector{Float64}    # Mean population fitness (evolutionary)
+    std_fitness::Vector{Float64}     # Std of population fitness
+    step_sizes::Vector{Float64}      # Step size (CMA-ES σ)
+    constraint_violations::Vector{Float64}  # Max constraint violation
+end
+
+OptimizationHistory() = OptimizationHistory(
+    Float64[], Float64[], Float64[], Float64[], Float64[]
+)
+
+function record!(h::OptimizationHistory;
+                 objective::Float64=NaN,
+                 mean_fitness::Float64=NaN,
+                 std_fitness::Float64=NaN,
+                 step_size::Float64=NaN,
+                 constraint_violation::Float64=0.0)
+    push!(h.objectives, objective)
+    push!(h.mean_fitness, mean_fitness)
+    push!(h.std_fitness, std_fitness)
+    push!(h.step_sizes, step_size)
+    push!(h.constraint_violations, constraint_violation)
+end
+
+function Base.show(io::IO, h::OptimizationHistory)
+    n = length(h.objectives)
+    if n == 0
+        print(io, "OptimizationHistory: empty")
+    else
+        print(io, "OptimizationHistory: $(n) iterations, final obj=$(round(h.objectives[end], digits=6))")
+    end
+end
+
+# ============================================================================
 # Constraint Types
 # ============================================================================
 
@@ -881,7 +1181,7 @@ end
 # ============================================================================
 
 """
-    CMAESSolver(; popsize=nothing, sigma=0.3, max_iter=1000, tol=1e-8, seed=nothing)
+    CMAESSolver(; popsize=nothing, sigma=0.3, max_iter=1000, tol=1e-8, seed=nothing, parallel=false, track_history=false)
 
 CMA-ES (Covariance Matrix Adaptation Evolution Strategy) solver for global optimization
 of non-convex problems. State-of-the-art for continuous black-box optimization.
@@ -898,6 +1198,8 @@ making it particularly effective for:
 - `max_iter`: Maximum iterations (default: 1000)
 - `tol`: Convergence tolerance on step size (default: 1e-8)
 - `seed`: Random seed for reproducibility (default: nothing)
+- `parallel`: Use multi-threaded fitness evaluation (default: false)
+- `track_history`: Record convergence history (default: false)
 
 # Reference
 Hansen, N. (2016). The CMA Evolution Strategy: A Tutorial.
@@ -908,18 +1210,22 @@ struct CMAESSolver <: AbstractSolver
     max_iter::Int
     tol::Float64
     seed::Union{Int, Nothing}
+    parallel::Bool
+    track_history::Bool
 
     function CMAESSolver(;
         popsize::Union{Int, Nothing}=nothing,
         sigma::Float64=0.3,
         max_iter::Int=1000,
         tol::Float64=1e-8,
-        seed::Union{Int, Nothing}=nothing
+        seed::Union{Int, Nothing}=nothing,
+        parallel::Bool=false,
+        track_history::Bool=false
     )
         @assert sigma > 0 "Initial step size must be positive"
         @assert max_iter > 0 "Max iterations must be positive"
         @assert tol > 0 "Tolerance must be positive"
-        new(popsize, sigma, max_iter, tol, seed)
+        new(popsize, sigma, max_iter, tol, seed, parallel, track_history)
     end
 end
 
@@ -935,7 +1241,8 @@ Solve constrained optimization using CMA-ES.
 - `solver`: CMAESSolver with parameters
 
 # Returns
-Named tuple with (x, objective, converged, iterations)
+Named tuple with (x, objective, converged, iterations, history)
+- `history` is OptimizationHistory if solver.track_history=true, nothing otherwise
 """
 function solve_cmaes(f, x0::Vector{Float64};
                      constraints::Union{Vector{<:AbstractConstraint}, Nothing}=nothing,
@@ -946,6 +1253,9 @@ function solve_cmaes(f, x0::Vector{Float64};
     if !isnothing(solver.seed)
         Random.seed!(solver.seed)
     end
+
+    # Initialize history tracking
+    history = solver.track_history ? OptimizationHistory() : nothing
 
     # Extract constraint parameters
     lb, ub, target_sum = _extract_bounds(constraints, n)
@@ -1035,10 +1345,20 @@ function solve_cmaes(f, x0::Vector{Float64};
         end
 
         # -------------------------------------------------------------------
-        # Evaluate and Rank
+        # Evaluate and Rank (parallel if enabled)
         # -------------------------------------------------------------------
 
-        fitness = [f(x) for x in offspring]
+        fitness = Vector{Float64}(undef, λ)
+        if solver.parallel && Threads.nthreads() > 1
+            Threads.@threads for k in 1:λ
+                fitness[k] = f(offspring[k])
+            end
+        else
+            for k in 1:λ
+                fitness[k] = f(offspring[k])
+            end
+        end
+
         ranking = sortperm(fitness)  # Ascending (minimization)
 
         # Track best
@@ -1048,6 +1368,15 @@ function solve_cmaes(f, x0::Vector{Float64};
         end
 
         push!(f_history, fitness[ranking[1]])
+
+        # Record history
+        if solver.track_history
+            record!(history;
+                objective=best_f,
+                mean_fitness=mean(fitness),
+                std_fitness=std(fitness),
+                step_size=σ)
+        end
 
         # -------------------------------------------------------------------
         # Update Mean
@@ -1127,13 +1456,13 @@ function solve_cmaes(f, x0::Vector{Float64};
         # -------------------------------------------------------------------
 
         if σ * maximum(D) < solver.tol
-            return (x=best_x, objective=best_f, converged=true, iterations=iter)
+            return (x=best_x, objective=best_f, converged=true, iterations=iter, history=history)
         end
 
         if length(f_history) > 20
             recent = f_history[end-19:end]
             if (maximum(recent) - minimum(recent)) < solver.tol * abs(best_f + 1e-10)
-                return (x=best_x, objective=best_f, converged=true, iterations=iter)
+                return (x=best_x, objective=best_f, converged=true, iterations=iter, history=history)
             end
         end
 
@@ -1149,7 +1478,265 @@ function solve_cmaes(f, x0::Vector{Float64};
         end
     end
 
-    (x=best_x, objective=best_f, converged=false, iterations=solver.max_iter)
+    (x=best_x, objective=best_f, converged=false, iterations=solver.max_iter, history=history)
+end
+
+# ============================================================================
+# Differential Evolution Solver
+# ============================================================================
+
+"""
+    DESolver(; popsize=nothing, F=0.8, CR=0.9, strategy=:rand1bin, max_iter=1000, tol=1e-8, seed=nothing, parallel=false, track_history=false)
+
+Differential Evolution solver for global optimization. Robust population-based
+evolutionary algorithm that works well on noisy, non-smooth, and multi-modal objectives.
+
+DE is particularly effective for:
+- Noisy objectives (Monte Carlo CVaR, simulation-based)
+- Non-smooth objectives
+- Black-box optimization where gradients are unavailable
+
+# Arguments
+- `popsize`: Population size (default: 10*n where n is dimensionality)
+- `F`: Mutation factor / differential weight (default: 0.8, range [0,2])
+- `CR`: Crossover probability (default: 0.9, range [0,1])
+- `strategy`: Mutation strategy - :rand1bin, :best1bin, :rand2bin, :best2bin (default: :rand1bin)
+- `max_iter`: Maximum generations (default: 1000)
+- `tol`: Convergence tolerance (default: 1e-8)
+- `seed`: Random seed for reproducibility (default: nothing)
+- `parallel`: Use multi-threaded fitness evaluation (default: false)
+- `track_history`: Record convergence history (default: false)
+
+# Strategies
+- `:rand1bin`: v = x_r1 + F*(x_r2 - x_r3) - classic, good exploration
+- `:best1bin`: v = x_best + F*(x_r1 - x_r2) - faster convergence, less exploration
+- `:rand2bin`: v = x_r1 + F*(x_r2 - x_r3) + F*(x_r4 - x_r5) - more diversity
+- `:best2bin`: v = x_best + F*(x_r1 - x_r2) + F*(x_r3 - x_r4) - aggressive
+
+# Reference
+Storn, R., & Price, K. (1997). Differential Evolution - A Simple and Efficient
+Heuristic for Global Optimization over Continuous Spaces.
+"""
+struct DESolver <: AbstractSolver
+    popsize::Union{Int, Nothing}
+    F::Float64       # Mutation factor
+    CR::Float64      # Crossover probability
+    strategy::Symbol
+    max_iter::Int
+    tol::Float64
+    seed::Union{Int, Nothing}
+    parallel::Bool
+    track_history::Bool
+
+    function DESolver(;
+        popsize::Union{Int, Nothing}=nothing,
+        F::Float64=0.8,
+        CR::Float64=0.9,
+        strategy::Symbol=:rand1bin,
+        max_iter::Int=1000,
+        tol::Float64=1e-8,
+        seed::Union{Int, Nothing}=nothing,
+        parallel::Bool=false,
+        track_history::Bool=false
+    )
+        @assert 0 <= F <= 2 "Mutation factor F must be in [0, 2]"
+        @assert 0 <= CR <= 1 "Crossover probability CR must be in [0, 1]"
+        @assert strategy in [:rand1bin, :best1bin, :rand2bin, :best2bin] "Unknown strategy: $strategy"
+        @assert max_iter > 0 "Max iterations must be positive"
+        @assert tol > 0 "Tolerance must be positive"
+        new(popsize, F, CR, strategy, max_iter, tol, seed, parallel, track_history)
+    end
+end
+
+"""
+    solve_de(f, x0; constraints=nothing, solver=DESolver())
+
+Solve constrained optimization using Differential Evolution.
+
+# Arguments
+- `f`: Objective function to minimize
+- `x0`: Initial point (determines dimensionality, used to seed one population member)
+- `constraints`: Optional constraints (supports FullInvestment, LongOnly, Box)
+- `solver`: DESolver with parameters
+
+# Returns
+Named tuple with (x, objective, converged, iterations, history)
+- `history` is OptimizationHistory if solver.track_history=true, nothing otherwise
+
+# Algorithm
+For each generation:
+1. For each population member (target vector):
+   - Create mutant vector using selected strategy
+   - Crossover: mix mutant with target (binomial crossover)
+   - Selection: keep trial if better than target
+2. Track best solution
+3. Check convergence (population diversity below tolerance)
+"""
+function solve_de(f, x0::Vector{Float64};
+                  constraints::Union{Vector{<:AbstractConstraint}, Nothing}=nothing,
+                  solver::DESolver=DESolver())
+    n = length(x0)
+
+    # Set random seed if provided
+    if !isnothing(solver.seed)
+        Random.seed!(solver.seed)
+    end
+
+    # Initialize history tracking
+    history = solver.track_history ? OptimizationHistory() : nothing
+
+    # Extract constraint parameters
+    lb, ub, target_sum = _extract_bounds(constraints, n)
+    has_sum_constraint = !isnothing(target_sum)
+    ub_finite = _finite_or_nothing(ub)
+
+    # Population size
+    NP = isnothing(solver.popsize) ? 10 * n : solver.popsize
+    NP = max(NP, 4)  # Need at least 4 for mutation
+
+    F = solver.F
+    CR = solver.CR
+
+    # -------------------------------------------------------------------------
+    # Initialize Population
+    # -------------------------------------------------------------------------
+
+    population = Vector{Vector{Float64}}(undef, NP)
+    fitness = Vector{Float64}(undef, NP)
+
+    # First member is the provided initial point
+    if has_sum_constraint
+        population[1] = project_simplex(copy(x0), target_sum; lower=lb, upper=ub_finite)
+    else
+        population[1] = clamp.(copy(x0), lb, ub)
+    end
+    fitness[1] = f(population[1])
+
+    # Rest are random
+    for i in 2:NP
+        if has_sum_constraint
+            # Random point on simplex
+            x = rand(n)
+            x = x / sum(x) * target_sum
+            population[i] = project_simplex(x, target_sum; lower=lb, upper=ub_finite)
+        else
+            # Random point in box
+            x = lb .+ rand(n) .* (ub .- lb)
+            population[i] = clamp.(x, lb, ub)
+        end
+        fitness[i] = f(population[i])
+    end
+
+    # Track best
+    best_idx = argmin(fitness)
+    best_x = copy(population[best_idx])
+    best_f = fitness[best_idx]
+
+    # -------------------------------------------------------------------------
+    # Main Evolution Loop
+    # -------------------------------------------------------------------------
+
+    for gen in 1:solver.max_iter
+        # Generate all trial vectors first (for potential parallel evaluation)
+        trials = Vector{Vector{Float64}}(undef, NP)
+
+        for i in 1:NP
+            # Select random indices different from i
+            candidates = setdiff(1:NP, i)
+            r = candidates[randperm(length(candidates))]
+
+            # -------------------------------------------------------------------
+            # Mutation: Create donor/mutant vector
+            # -------------------------------------------------------------------
+
+            if solver.strategy == :rand1bin
+                mutant = population[r[1]] .+ F .* (population[r[2]] .- population[r[3]])
+            elseif solver.strategy == :best1bin
+                mutant = best_x .+ F .* (population[r[1]] .- population[r[2]])
+            elseif solver.strategy == :rand2bin
+                mutant = population[r[1]] .+ F .* (population[r[2]] .- population[r[3]]) .+
+                         F .* (population[r[4]] .- population[r[5]])
+            elseif solver.strategy == :best2bin
+                mutant = best_x .+ F .* (population[r[1]] .- population[r[2]]) .+
+                         F .* (population[r[3]] .- population[r[4]])
+            end
+
+            # -------------------------------------------------------------------
+            # Crossover: Create trial vector (binomial)
+            # -------------------------------------------------------------------
+
+            trial = copy(population[i])
+            j_rand = rand(1:n)
+
+            for j in 1:n
+                if rand() < CR || j == j_rand
+                    trial[j] = mutant[j]
+                end
+            end
+
+            # Boundary/Constraint Handling
+            if has_sum_constraint
+                trials[i] = project_simplex(trial, target_sum; lower=lb, upper=ub_finite)
+            else
+                trials[i] = clamp.(trial, lb, ub)
+            end
+        end
+
+        # -------------------------------------------------------------------
+        # Evaluate trials (parallel if enabled)
+        # -------------------------------------------------------------------
+
+        trial_fitness = Vector{Float64}(undef, NP)
+        if solver.parallel && Threads.nthreads() > 1
+            Threads.@threads for i in 1:NP
+                trial_fitness[i] = f(trials[i])
+            end
+        else
+            for i in 1:NP
+                trial_fitness[i] = f(trials[i])
+            end
+        end
+
+        # -------------------------------------------------------------------
+        # Selection: Greedy
+        # -------------------------------------------------------------------
+
+        for i in 1:NP
+            if trial_fitness[i] <= fitness[i]
+                population[i] = trials[i]
+                fitness[i] = trial_fitness[i]
+
+                if trial_fitness[i] < best_f
+                    best_x = copy(trials[i])
+                    best_f = trial_fitness[i]
+                end
+            end
+        end
+
+        # -------------------------------------------------------------------
+        # Record history
+        # -------------------------------------------------------------------
+
+        if solver.track_history
+            record!(history;
+                objective=best_f,
+                mean_fitness=mean(fitness),
+                std_fitness=std(fitness))
+        end
+
+        # -------------------------------------------------------------------
+        # Convergence Check
+        # -------------------------------------------------------------------
+
+        pop_std = mean([std([population[i][j] for i in 1:NP]) for j in 1:n])
+        fitness_range = maximum(fitness) - minimum(fitness)
+
+        if pop_std < solver.tol && fitness_range < solver.tol * abs(best_f + 1e-10)
+            return (x=best_x, objective=best_f, converged=true, iterations=gen, history=history)
+        end
+    end
+
+    (x=best_x, objective=best_f, converged=false, iterations=solver.max_iter, history=history)
 end
 
 # Helper to extract bounds from constraints
@@ -2026,61 +2613,84 @@ function optimize(mv::MeanVariance; target_return::Float64, backend=current_back
 end
 
 # Sharpe Maximizer (gradient-based)
-function optimize(sm::SharpeMaximizer; backend=current_backend(), max_iter=1000, tol=1e-8, lr=0.1)
+function optimize(sm::SharpeMaximizer;
+                  solver::Union{AbstractSolver, Symbol}=:auto,
+                  backend=current_backend(),
+                  max_iter=1000,
+                  tol=1e-8,
+                  lr=0.1)
     μ = sm.expected_returns
     Σ = sm.cov_matrix
     rf = sm.rf
     n = length(μ)
 
-    # Initialize with equal weights
-    w = ones(n) / n
-
-    for i in 1:max_iter
-        # Negative Sharpe (we minimize)
-        function neg_sharpe(weights)
-            ret = dot(weights, μ)
-            vol = sqrt(weights' * Σ * weights)
-            # Add small epsilon to avoid division by zero
-            sharpe = (ret - rf) / (vol + 1e-10)
-
-            # Penalties for constraints
-            penalty = 100.0
-            sum_penalty = penalty * (sum(weights) - 1)^2
-            neg_penalty = penalty * sum(max.(-weights, 0).^2)
-
-            return -sharpe + sum_penalty + neg_penalty
-        end
-
-        g = gradient(neg_sharpe, w; backend=backend)
-        w_new = w - lr * g
-
-        # Project to simplex
-        w_new = max.(w_new, 0.0)
-        if sum(w_new) > 0
-            w_new = w_new / sum(w_new)
-        else
-            w_new = ones(n) / n
-        end
-
-        if norm(w_new - w) < tol
-            ret = dot(w_new, μ)
-            vol = sqrt(w_new' * Σ * w_new)
-            sharpe = (ret - rf) / vol
-            return OptimizationResult(w_new, sharpe, true, i)
-        end
-
-        w = w_new
+    # Objective function: negative Sharpe (minimize)
+    function neg_sharpe(w)
+        ret = dot(w, μ)
+        vol = sqrt(w' * Σ * w + 1e-12)
+        return -(ret - rf) / vol
     end
 
-    ret = dot(w, μ)
-    vol = sqrt(w' * Σ * w)
-    sharpe = (ret - rf) / vol
-    return OptimizationResult(w, sharpe, false, max_iter)
+    constraints = [FullInvestmentConstraint(), LongOnlyConstraint()]
+    x0 = ones(n) / n
+
+    # Auto-select solver: CMA-ES for smooth non-convex
+    actual_solver = solver == :auto ? CMAESSolver(max_iter=max_iter, tol=tol) : solver
+
+    if actual_solver isa CMAESSolver
+        result = solve_cmaes(neg_sharpe, x0; constraints=constraints, solver=actual_solver)
+        sharpe = -result.objective
+        return OptimizationResult(result.x, sharpe, result.converged, result.iterations)
+    elseif actual_solver isa DESolver
+        result = solve_de(neg_sharpe, x0; constraints=constraints, solver=actual_solver)
+        sharpe = -result.objective
+        return OptimizationResult(result.x, sharpe, result.converged, result.iterations)
+    elseif actual_solver isa ProjectedGradientSolver
+        result = solve_projected_gradient(neg_sharpe, x0; constraints=constraints, solver=actual_solver, backend=backend)
+        sharpe = -result.objective
+        return OptimizationResult(result.x, sharpe, result.converged, result.iterations)
+    else
+        # Legacy gradient descent for backward compatibility
+        w = copy(x0)
+        for i in 1:max_iter
+            function penalized_neg_sharpe(weights)
+                ret = dot(weights, μ)
+                vol = sqrt(weights' * Σ * weights + 1e-12)
+                sharpe = (ret - rf) / vol
+                penalty = 100.0
+                sum_penalty = penalty * (sum(weights) - 1)^2
+                neg_penalty = penalty * sum(max.(-weights, 0).^2)
+                return -sharpe + sum_penalty + neg_penalty
+            end
+
+            g = gradient(penalized_neg_sharpe, w; backend=backend)
+            w_new = w - lr * g
+            w_new = max.(w_new, 0.0)
+            if sum(w_new) > 0
+                w_new = w_new / sum(w_new)
+            else
+                w_new = ones(n) / n
+            end
+
+            if norm(w_new - w) < tol
+                ret = dot(w_new, μ)
+                vol = sqrt(w_new' * Σ * w_new)
+                sharpe = (ret - rf) / vol
+                return OptimizationResult(w_new, sharpe, true, i)
+            end
+            w = w_new
+        end
+
+        ret = dot(w, μ)
+        vol = sqrt(w' * Σ * w)
+        sharpe = (ret - rf) / vol
+        return OptimizationResult(w, sharpe, false, max_iter)
+    end
 end
 
 # CVaR Minimization (parametric Gaussian approximation)
 """
-    optimize(cvar::CVaRObjective; target_return, backend, max_iter, tol, lr)
+    optimize(cvar::CVaRObjective; target_return, solver=:auto, backend, max_iter, tol, lr)
 
 Minimize CVaR subject to a target return constraint.
 
@@ -2088,8 +2698,12 @@ Uses the parametric (Gaussian) CVaR formula:
     CVaR_α = -μ'w + σ(w) * φ(z_α) / (1-α)
 
 where z_α = Φ⁻¹(α) is the VaR quantile and φ is the standard normal PDF.
+
+# Arguments
+- `solver`: Optimization solver - :auto (default, uses DE for robustness to noise), DESolver, CMAESSolver, or :legacy
 """
 function optimize(cvar::CVaRObjective; target_return::Float64,
+                  solver::Union{AbstractSolver, Symbol}=:auto,
                   backend=current_backend(), max_iter::Int=5000,
                   tol::Float64=1e-10, lr::Float64=0.01)
     μ = cvar.expected_returns
@@ -2102,53 +2716,68 @@ function optimize(cvar::CVaRObjective; target_return::Float64,
     φ_z = exp(-z_α^2 / 2) / sqrt(2π)
     cvar_factor = φ_z / (1 - α)
 
-    # Initialize with equal weights
-    w = ones(n) / n
-    penalty = 10000.0
-
-    for i in 1:max_iter
-        function obj(weights)
-            port_return = dot(weights, μ)
-            port_vol = sqrt(weights' * Σ * weights + 1e-12)
-
-            # Parametric CVaR (we want to minimize, so negative return + risk term)
-            cvar_val = -port_return + port_vol * cvar_factor
-
-            # Constraints
-            ret_penalty = penalty * (port_return - target_return)^2
-            sum_penalty = penalty * (sum(weights) - 1)^2
-            neg_penalty = penalty * sum(max.(-weights, 0).^2)
-
-            return cvar_val + ret_penalty + sum_penalty + neg_penalty
-        end
-
-        g = gradient(obj, w; backend=backend)
-
-        current_lr = lr / (1 + i * 0.0001)
-        w_new = w - current_lr * g
-
-        # Project to simplex
-        w_new = max.(w_new, 0.0)
-        if sum(w_new) > 0
-            w_new = w_new / sum(w_new)
-        else
-            w_new = ones(n) / n
-        end
-
-        if norm(w_new - w) < tol
-            port_return = dot(w_new, μ)
-            port_vol = sqrt(w_new' * Σ * w_new)
-            cvar_val = -port_return + port_vol * cvar_factor
-            return OptimizationResult(w_new, cvar_val, true, i)
-        end
-
-        w = w_new
+    # Objective: minimize CVaR with target return penalty
+    function obj(w)
+        port_return = dot(w, μ)
+        port_vol = sqrt(w' * Σ * w + 1e-12)
+        cvar_val = -port_return + port_vol * cvar_factor
+        # Soft penalty for target return constraint
+        ret_penalty = 1000.0 * (port_return - target_return)^2
+        return cvar_val + ret_penalty
     end
 
-    port_return = dot(w, μ)
-    port_vol = sqrt(w' * Σ * w)
-    cvar_val = -port_return + port_vol * cvar_factor
-    return OptimizationResult(w, cvar_val, false, max_iter)
+    constraints = [FullInvestmentConstraint(), LongOnlyConstraint()]
+    x0 = ones(n) / n
+
+    # Auto-select solver: DE for potentially noisy objectives
+    actual_solver = solver == :auto ? DESolver(max_iter=max_iter, tol=tol) : solver
+
+    if actual_solver isa DESolver
+        result = solve_de(obj, x0; constraints=constraints, solver=actual_solver)
+        return OptimizationResult(result.x, result.objective, result.converged, result.iterations)
+    elseif actual_solver isa CMAESSolver
+        result = solve_cmaes(obj, x0; constraints=constraints, solver=actual_solver)
+        return OptimizationResult(result.x, result.objective, result.converged, result.iterations)
+    else
+        # Legacy gradient descent
+        w = copy(x0)
+        penalty = 10000.0
+
+        for i in 1:max_iter
+            function penalized_obj(weights)
+                port_return = dot(weights, μ)
+                port_vol = sqrt(weights' * Σ * weights + 1e-12)
+                cvar_val = -port_return + port_vol * cvar_factor
+                ret_penalty = penalty * (port_return - target_return)^2
+                sum_penalty = penalty * (sum(weights) - 1)^2
+                neg_penalty = penalty * sum(max.(-weights, 0).^2)
+                return cvar_val + ret_penalty + sum_penalty + neg_penalty
+            end
+
+            g = gradient(penalized_obj, w; backend=backend)
+            current_lr = lr / (1 + i * 0.0001)
+            w_new = w - current_lr * g
+            w_new = max.(w_new, 0.0)
+            if sum(w_new) > 0
+                w_new = w_new / sum(w_new)
+            else
+                w_new = ones(n) / n
+            end
+
+            if norm(w_new - w) < tol
+                port_return = dot(w_new, μ)
+                port_vol = sqrt(w_new' * Σ * w_new)
+                cvar_val = -port_return + port_vol * cvar_factor
+                return OptimizationResult(w_new, cvar_val, true, i)
+            end
+            w = w_new
+        end
+
+        port_return = dot(w, μ)
+        port_vol = sqrt(w' * Σ * w)
+        cvar_val = -port_return + port_vol * cvar_factor
+        return OptimizationResult(w, cvar_val, false, max_iter)
+    end
 end
 
 # Kelly Criterion Optimization
@@ -2257,14 +2886,18 @@ function optimize(mv::MinimumVariance;
 end
 
 """
-    optimize(rp::RiskParity; constraints=nothing, backend=current_backend(), max_iter=5000, tol=1e-10, lr=0.01)
+    optimize(rp::RiskParity; solver=:auto, constraints=nothing, backend=current_backend(), max_iter=5000, tol=1e-10, lr=0.01)
 
 Find risk parity portfolio that equalizes risk contributions.
 
 Uses Spinu (2013) formulation: minimize Σᵢ(wᵢ(Σw)ᵢ - c)²
 where c is chosen to achieve target risk budget.
+
+# Arguments
+- `solver`: Optimization solver - :auto (default, uses CMA-ES), CMAESSolver, DESolver, or :legacy
 """
 function optimize(rp::RiskParity;
+                  solver::Union{AbstractSolver, Symbol}=:auto,
                   constraints::Union{Vector{<:AbstractConstraint}, Nothing}=nothing,
                   backend=current_backend(),
                   max_iter::Int=5000,
@@ -2274,61 +2907,54 @@ function optimize(rp::RiskParity;
     targets = rp.target_contributions
     n = size(Σ, 1)
 
-    # Extract bounds from constraints
-    lb = zeros(n)
-    ub = fill(Inf, n)
-    target_sum = 1.0
+    # Default constraints
+    if isnothing(constraints)
+        constraints = [FullInvestmentConstraint(), LongOnlyConstraint()]
+    end
 
-    if !isnothing(constraints)
-        for c in constraints
-            if c isa BoxConstraint
-                lb = max.(lb, c.lower)
-                ub = min.(ub, c.upper)
-            elseif c isa LongOnlyConstraint
-                lb = max.(lb, 0.0)
-            elseif c isa FullInvestmentConstraint
-                target_sum = c.target
+    # Objective function
+    function obj(w)
+        var = w' * Σ * w + 1e-12
+        marginal = Σ * w
+        frc = (w .* marginal) / var
+        sum((frc .- targets).^2)
+    end
+
+    # Initialize with inverse volatility weights
+    σ_diag = sqrt.(diag(Σ))
+    x0 = 1.0 ./ σ_diag
+    x0 = x0 / sum(x0)
+
+    # Auto-select solver: CMA-ES for non-convex
+    actual_solver = solver == :auto ? CMAESSolver(max_iter=max_iter, tol=tol) : solver
+
+    if actual_solver isa CMAESSolver
+        result = solve_cmaes(obj, x0; constraints=constraints, solver=actual_solver)
+        return OptimizationResult(result.x, result.objective, result.converged, result.iterations)
+    elseif actual_solver isa DESolver
+        result = solve_de(obj, x0; constraints=constraints, solver=actual_solver)
+        return OptimizationResult(result.x, result.objective, result.converged, result.iterations)
+    else
+        # Legacy gradient descent
+        lb, ub, target_sum = _extract_bounds(constraints, n)
+        ub_finite = _finite_or_nothing(ub)
+
+        w = project_simplex(x0, isnothing(target_sum) ? 1.0 : target_sum; lower=lb, upper=ub_finite)
+
+        for i in 1:max_iter
+            g = gradient(obj, w; backend=backend)
+            current_lr = lr / (1 + i * 0.0001)
+            w_new = w - current_lr * g
+            w_new = project_simplex(w_new, isnothing(target_sum) ? 1.0 : target_sum; lower=lb, upper=ub_finite)
+
+            if norm(w_new - w) < tol
+                return OptimizationResult(w_new, obj(w_new), true, i)
             end
+            w = w_new
         end
+
+        return OptimizationResult(w, obj(w), false, max_iter)
     end
-
-    # Initialize with inverse volatility weights (good starting point for risk parity)
-    σ = sqrt.(diag(Σ))
-    w = 1.0 ./ σ
-    w = w / sum(w) * target_sum
-    w = clamp.(w, lb, ub)
-
-    # Determine if upper bounds are finite
-    ub_finite = all(isfinite, ub) ? ub : nothing
-    w = project_simplex(w, target_sum; lower=lb, upper=ub_finite)
-
-    for i in 1:max_iter
-        # Objective: sum((w_i * (Σw)_i / var - target_i)^2)
-        function obj(weights)
-            var = weights' * Σ * weights + 1e-12
-            marginal = Σ * weights
-            frc = (weights .* marginal) / var  # Fractional risk contributions
-            sum((frc .- targets).^2)
-        end
-
-        g = gradient(obj, w; backend=backend)
-
-        current_lr = lr / (1 + i * 0.0001)
-        w_new = w - current_lr * g
-
-        # Project to feasible set
-        w_new = project_simplex(w_new, target_sum; lower=lb, upper=ub_finite)
-
-        if norm(w_new - w) < tol
-            obj_val = risk_parity_objective(w_new, rp)
-            return OptimizationResult(w_new, obj_val, true, i)
-        end
-
-        w = w_new
-    end
-
-    obj_val = risk_parity_objective(w, rp)
-    return OptimizationResult(w, obj_val, false, max_iter)
 end
 
 """
@@ -2876,15 +3502,23 @@ end
 # Abstract types
 export AbstractOptimizationObjective, AbstractConstraint, AbstractSolver, AbstractCovarianceEstimator
 
+# Validation and regularization
+export ValidationResult, validate_cov_matrix, validate_expected_returns
+export throw_on_invalid, warn_on_invalid
+export regularize_covariance, ensure_valid_covariance
+
+# History tracking
+export OptimizationHistory, record!
+
 # Constraint types
 export FullInvestmentConstraint, LongOnlyConstraint, BoxConstraint
 export GroupConstraint, TurnoverConstraint, CardinalityConstraint
 export standard_constraints, check_constraint_violation, check_all_constraints
 
 # Solver types
-export QPSolver, LBFGSSolver, ProjectedGradientSolver, CMAESSolver
+export QPSolver, LBFGSSolver, ProjectedGradientSolver, CMAESSolver, DESolver
 export project_simplex, project_constraints, solve_qp, solve_min_variance_qp
-export solve_lbfgs, solve_projected_gradient, solve_cmaes
+export solve_lbfgs, solve_projected_gradient, solve_cmaes, solve_de
 
 # Objective types (existing)
 export MeanVariance, SharpeMaximizer, CVaRObjective, KellyCriterion, OptimizationResult
