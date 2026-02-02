@@ -746,34 +746,146 @@ end
 """
     render_frontier_single(spec::VisualizationSpec{OptimizationResult})
 
-Render a single portfolio point on risk-return space.
+Render efficient frontier with the optimal portfolio highlighted.
+If μ and Σ are provided in options, computes the full frontier curve.
 """
 function render_frontier_single(spec::VisualizationSpec{OptimizationResult})
     result = spec.data
     opts = spec.options
     theme = get(opts, :theme, get_theme())
+    title = get(opts, :title, "Efficient Frontier")
 
-    # For a single optimization result, we just show the point
-    # We need expected return and volatility from options or compute from weights
-    expected_return = get(opts, :expected_return, result.objective)
-    volatility = get(opts, :volatility, 0.0)
+    # Get expected returns and covariance if provided
+    μ = get(opts, :μ, nothing)
+    Σ = get(opts, :Σ, nothing)
+    assets = get(opts, :assets, nothing)
 
-    fig = Figure(backgroundcolor=to_color(theme[:backgroundcolor]), size=(600, 500))
+    # Compute optimal portfolio's risk and return
+    weights = result.weights
+    n = length(weights)
+
+    if !isnothing(Σ)
+        opt_vol = sqrt(weights' * Σ * weights) * sqrt(252)  # Annualized
+    else
+        opt_vol = get(opts, :volatility, 0.15)
+    end
+
+    if !isnothing(μ)
+        opt_ret = sum(weights .* μ)  # Already annualized expected returns
+    else
+        opt_ret = get(opts, :expected_return, 0.10)
+    end
+
+    fig = Figure(backgroundcolor=to_color(theme[:backgroundcolor]), size=(700, 550))
     ax = Axis(fig[1, 1],
-        title="Optimal Portfolio",
-        xlabel="Volatility (Annualized)",
-        ylabel="Expected Return (Annualized)",
+        title=title,
+        xlabel="Risk (Annualized Volatility)",
+        ylabel="Expected Return",
         titlesize=theme[:titlesize],
         xlabelsize=theme[:fontsize],
-        ylabelsize=theme[:fontsize]
+        ylabelsize=theme[:fontsize],
+        xgridvisible=true,
+        ygridvisible=true,
     )
     apply_theme!(ax, theme)
 
-    scatter!(ax, [volatility], [expected_return],
-             color=to_color(COLORS[:highlight]), markersize=15,
-             marker=:star5, label="Optimal")
+    # If we have μ and Σ, compute the efficient frontier
+    if !isnothing(μ) && !isnothing(Σ)
+        # Generate frontier points using mean-variance optimization
+        n_points = 50
+        frontier_vols = Float64[]
+        frontier_rets = Float64[]
 
-    axislegend(ax, position=:rb, backgroundcolor=(to_color(theme[:backgroundcolor]), 0.8))
+        # Find min and max return portfolios
+        min_ret = minimum(μ)
+        max_ret = maximum(μ)
+        target_returns = range(min_ret * 0.8, max_ret * 1.1, length=n_points)
+
+        for target_ret in target_returns
+            # Simple mean-variance for target return (using quadratic constraint)
+            # For simplicity, use a parametric approach along the frontier
+            try
+                # Use closed-form two-fund theorem
+                ones_vec = ones(n)
+                Σ_inv = inv(Σ)
+
+                A = ones_vec' * Σ_inv * μ
+                B = μ' * Σ_inv * μ
+                C = ones_vec' * Σ_inv * ones_vec
+                D = B * C - A^2
+
+                if D > 0
+                    # Frontier portfolio weights for target return
+                    λ = (C * target_ret - A) / D
+                    γ = (B - A * target_ret) / D
+                    w = Σ_inv * (λ * μ + γ * ones_vec)
+
+                    # Compute portfolio stats
+                    port_vol = sqrt(w' * Σ * w) * sqrt(252)
+                    port_ret = sum(w .* μ)
+
+                    if port_vol > 0 && port_vol < 1.0  # Reasonable range
+                        push!(frontier_vols, port_vol)
+                        push!(frontier_rets, port_ret)
+                    end
+                end
+            catch
+                continue
+            end
+        end
+
+        # Sort by volatility for smooth curve
+        if length(frontier_vols) > 2
+            perm = sortperm(frontier_vols)
+            frontier_vols = frontier_vols[perm]
+            frontier_rets = frontier_rets[perm]
+
+            # Plot frontier curve
+            lines!(ax, frontier_vols, frontier_rets,
+                   color=get_color(theme, 1), linewidth=2.5, label="Efficient Frontier")
+
+            # Fill area under frontier
+            band!(ax, frontier_vols,
+                  fill(minimum(frontier_rets) - 0.02, length(frontier_vols)),
+                  frontier_rets,
+                  color=(to_color(get_color(theme, 1)), 0.1))
+        end
+
+        # Plot individual assets
+        if !isnothing(assets)
+            asset_vols = [sqrt(Σ[i,i]) * sqrt(252) for i in 1:n]
+            asset_rets = μ
+            scatter!(ax, asset_vols, asset_rets,
+                     color=(to_color(theme[:textcolor]), 0.6),
+                     markersize=10, marker=:circle)
+
+            # Label assets
+            for (i, asset) in enumerate(assets)
+                text!(ax, asset_vols[i] + 0.005, asset_rets[i],
+                      text=string(asset), fontsize=9,
+                      color=to_color(theme[:textcolor]), align=(:left, :center))
+            end
+        end
+    end
+
+    # Plot optimal portfolio (star marker)
+    scatter!(ax, [opt_vol], [opt_ret],
+             color=to_color(COLORS[:highlight]), markersize=18,
+             marker=:star5, strokewidth=1, strokecolor=:white)
+
+    # Format axes as percentages
+    ax.xtickformat = xs -> ["$(round(x*100, digits=0))%" for x in xs]
+    ax.ytickformat = ys -> ["$(round(y*100, digits=0))%" for y in ys]
+
+    # Add legend if we have a frontier
+    if !isnothing(μ) && !isnothing(Σ)
+        # Manual legend entry for optimal point
+        scatter!(ax, [NaN], [NaN], color=to_color(COLORS[:highlight]),
+                 markersize=12, marker=:star5, label="Optimal Portfolio")
+        axislegend(ax, position=:rb,
+                   backgroundcolor=(to_color(theme[:backgroundcolor]), 0.9),
+                   framecolor=(to_color(theme[:gridcolor]), 0.5))
+    end
 
     return fig
 end
