@@ -791,64 +791,56 @@ function render_frontier_single(spec::VisualizationSpec{OptimizationResult})
 
     # If we have μ and Σ, compute the efficient frontier
     if !isnothing(μ) && !isnothing(Σ)
-        # Generate frontier points using mean-variance optimization
-        n_points = 50
-        frontier_vols = Float64[]
-        frontier_rets = Float64[]
+        # Pre-compute matrices for closed-form solution
+        ones_vec = ones(n)
+        Σ_inv = inv(Σ)
 
-        # Find min and max return portfolios
-        min_ret = minimum(μ)
-        max_ret = maximum(μ)
-        target_returns = range(min_ret * 0.8, max_ret * 1.1, length=n_points)
+        A = ones_vec' * Σ_inv * μ
+        B = μ' * Σ_inv * μ
+        C = ones_vec' * Σ_inv * ones_vec
+        D = B * C - A^2
 
-        for target_ret in target_returns
-            # Simple mean-variance for target return (using quadratic constraint)
-            # For simplicity, use a parametric approach along the frontier
-            try
-                # Use closed-form two-fund theorem
-                ones_vec = ones(n)
-                Σ_inv = inv(Σ)
+        if D > 0
+            # Minimum variance portfolio
+            w_mv = Σ_inv * ones_vec / C
+            mv_ret = sum(w_mv .* μ)
+            mv_vol = sqrt(w_mv' * Σ * w_mv) * sqrt(252)
 
-                A = ones_vec' * Σ_inv * μ
-                B = μ' * Σ_inv * μ
-                C = ones_vec' * Σ_inv * ones_vec
-                D = B * C - A^2
+            # Generate efficient frontier (upper branch only: from min-var to max return)
+            max_ret = maximum(μ) * 1.2
+            n_points = 30
+            target_returns = range(mv_ret, max_ret, length=n_points)
 
-                if D > 0
-                    # Frontier portfolio weights for target return
-                    λ = (C * target_ret - A) / D
-                    γ = (B - A * target_ret) / D
-                    w = Σ_inv * (λ * μ + γ * ones_vec)
+            frontier_vols = Float64[]
+            frontier_rets = Float64[]
 
-                    # Compute portfolio stats
-                    port_vol = sqrt(w' * Σ * w) * sqrt(252)
-                    port_ret = sum(w .* μ)
+            for target_ret in target_returns
+                # Closed-form frontier portfolio
+                λ = (C * target_ret - A) / D
+                γ = (B - A * target_ret) / D
+                w = Σ_inv * (λ * μ + γ * ones_vec)
 
-                    if port_vol > 0 && port_vol < 1.0  # Reasonable range
-                        push!(frontier_vols, port_vol)
-                        push!(frontier_rets, port_ret)
-                    end
+                port_vol = sqrt(w' * Σ * w) * sqrt(252)
+                port_ret = sum(w .* μ)
+
+                if port_vol > 0 && port_vol < 1.0
+                    push!(frontier_vols, port_vol)
+                    push!(frontier_rets, port_ret)
                 end
-            catch
-                continue
             end
-        end
 
-        # Sort by volatility for smooth curve
-        if length(frontier_vols) > 2
-            perm = sortperm(frontier_vols)
-            frontier_vols = frontier_vols[perm]
-            frontier_rets = frontier_rets[perm]
+            # Plot frontier curve (already sorted by return, which means sorted by vol on efficient branch)
+            if length(frontier_vols) > 2
+                # Plot frontier curve
+                lines!(ax, frontier_vols, frontier_rets,
+                       color=get_color(theme, 1), linewidth=2.5, label="Efficient Frontier")
 
-            # Plot frontier curve
-            lines!(ax, frontier_vols, frontier_rets,
-                   color=get_color(theme, 1), linewidth=2.5, label="Efficient Frontier")
-
-            # Fill area under frontier
-            band!(ax, frontier_vols,
-                  fill(minimum(frontier_rets) - 0.02, length(frontier_vols)),
-                  frontier_rets,
-                  color=(to_color(get_color(theme, 1)), 0.1))
+                # Fill area under frontier
+                band!(ax, frontier_vols,
+                      fill(minimum(frontier_rets) - 0.02, length(frontier_vols)),
+                      frontier_rets,
+                      color=(to_color(get_color(theme, 1)), 0.1))
+            end
         end
 
         # Plot individual assets
@@ -856,13 +848,14 @@ function render_frontier_single(spec::VisualizationSpec{OptimizationResult})
             asset_vols = [sqrt(Σ[i,i]) * sqrt(252) for i in 1:n]
             asset_rets = μ
             scatter!(ax, asset_vols, asset_rets,
-                     color=(to_color(theme[:textcolor]), 0.6),
-                     markersize=10, marker=:circle)
+                     color=get_color(theme, 2),
+                     markersize=12, marker=:circle,
+                     strokewidth=1.5, strokecolor=:white)
 
             # Label assets
             for (i, asset) in enumerate(assets)
-                text!(ax, asset_vols[i] + 0.005, asset_rets[i],
-                      text=string(asset), fontsize=9,
+                text!(ax, asset_vols[i] + 0.008, asset_rets[i],
+                      text=string(asset), fontsize=10,
                       color=to_color(theme[:textcolor]), align=(:left, :center))
             end
         end

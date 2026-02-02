@@ -9,7 +9,7 @@ using CairoMakie
 using Dates
 using Random
 using Statistics: mean, std
-using LinearAlgebra: I, diag
+using LinearAlgebra: I, diag, diagm
 
 CairoMakie.activate!()
 
@@ -139,14 +139,27 @@ println("=" ^ 50)
 n_assets = 5
 asset_names = [:AAPL, :MSFT, :GOOGL, :AMZN, :META]
 
-# Sample covariance matrix
+# Realistic daily covariance matrix
+# Daily vol ~1.5% (annual ~24%), correlation ~0.5
 Random.seed!(42)
-A = randn(n_assets, n_assets) * 0.2
-Σ = A' * A + 0.1 * I
-Σ = (Σ + Σ') / 2
+daily_vols = [0.018, 0.016, 0.020, 0.017, 0.019]  # ~25-32% annual
+corr_base = 0.4  # Base correlation
+Corr = fill(corr_base, n_assets, n_assets)
+for i in 1:n_assets
+    Corr[i,i] = 1.0
+end
+# Add some variation to correlations
+Corr = Corr + 0.1 * (randn(n_assets, n_assets) + randn(n_assets, n_assets)') / 2
+Corr = clamp.(Corr, -0.9, 1.0)
+for i in 1:n_assets
+    Corr[i,i] = 1.0
+end
+# Convert to covariance: Σ = diag(σ) * Corr * diag(σ)
+Σ = diagm(daily_vols) * Corr * diagm(daily_vols)
+Σ = (Σ + Σ') / 2  # Ensure symmetric
 
 # Expected returns (annualized)
-μ = [0.12, 0.10, 0.15, 0.08, 0.11]
+μ = [0.12, 0.10, 0.15, 0.08, 0.14]  # 8-15% annual expected returns
 
 # Run optimization
 opt_result = optimize(MinimumVariance(Σ))
@@ -158,7 +171,7 @@ generate_both_themes("weights", theme -> visualize(opt_result, :weights; theme=t
 
 # 7. Efficient Frontier
 println("\n7. Efficient Frontier")
-generate_both_themes("frontier", theme -> visualize(opt_result, :frontier; theme=theme, title="Risk-Return Tradeoff", μ=μ, Σ=Σ); size=(800, 600))
+generate_both_themes("frontier", theme -> visualize(opt_result, :frontier; theme=theme, title="Risk-Return Tradeoff", μ=μ, Σ=Σ, assets=asset_names); size=(800, 600))
 
 # =============================================================================
 # Summary
