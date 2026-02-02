@@ -2,6 +2,9 @@
 
 QuantNova provides differentiable portfolio optimization with multiple objective functions.
 
+![Efficient Frontier](../assets/viz-frontier-light.png){.light-only}
+![Efficient Frontier](../assets/viz-frontier-dark.png){.dark-only}
+
 ## Objectives
 
 ### Mean-Variance
@@ -123,4 +126,39 @@ result.params.kappa  # Mean reversion
 result.params.theta  # Long-term variance
 result.params.sigma  # Vol of vol
 result.params.rho    # Correlation
+```
+
+## Visualization
+
+QuantNova provides built-in visualization for optimization results using Makie.jl.
+
+### Efficient Frontier
+
+![Efficient Frontier](../assets/viz-frontier-light.png){.light-only}
+![Efficient Frontier](../assets/viz-frontier-dark.png){.dark-only}
+
+```julia
+using CairoMakie  # or GLMakie for interactive plots
+
+# Visualize the efficient frontier with individual assets
+spec = visualize(result, :frontier;
+    title="Risk-Return Tradeoff",
+    μ=expected_returns,
+    Σ=covariance_matrix,
+    assets=[:AAPL, :MSFT, :GOOGL, :AMZN, :META]
+)
+fig = render(spec)
+```
+
+### Portfolio Weights
+
+![Portfolio Weights](../assets/viz-weights-light.png){.light-only}
+![Portfolio Weights](../assets/viz-weights-dark.png){.dark-only}
+
+```julia
+spec = visualize(result, :weights;
+    title="Portfolio Allocation",
+    assets=[:AAPL, :MSFT, :GOOGL, :AMZN, :META]
+)
+fig = render(spec)
 ```

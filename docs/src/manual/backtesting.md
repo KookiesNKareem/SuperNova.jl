@@ -2,6 +2,9 @@
 
 Run historical backtests with customizable strategies.
 
+![Backtest Dashboard](../assets/viz-dashboard-light.png){.light-only}
+![Backtest Dashboard](../assets/viz-dashboard-dark.png){.dark-only}
+
 ## Quick Start
 
 ```julia
@@ -63,4 +66,50 @@ function QuantNova.generate_orders(s::MomentumStrategy, state::SimulationState)
     # Your logic here
     return orders
 end
+```
+
+## Visualization
+
+QuantNova provides built-in visualization for backtest results using Makie.jl.
+
+### Equity Curve
+
+![Equity Curve](../assets/viz-equity-light.png){.light-only}
+![Equity Curve](../assets/viz-equity-dark.png){.dark-only}
+
+```julia
+using CairoMakie  # or GLMakie for interactive plots
+
+spec = visualize(result, :equity; title="Portfolio Value")
+fig = render(spec)
+```
+
+### Drawdown
+
+![Drawdown](../assets/viz-drawdown-light.png){.light-only}
+![Drawdown](../assets/viz-drawdown-dark.png){.dark-only}
+
+```julia
+spec = visualize(result, :drawdown; title="Drawdown Analysis")
+fig = render(spec)
+```
+
+### Returns Distribution
+
+![Returns Distribution](../assets/viz-returns-light.png){.light-only}
+![Returns Distribution](../assets/viz-returns-dark.png){.dark-only}
+
+```julia
+spec = visualize(result, :returns; title="Daily Returns")
+fig = render(spec)
+```
+
+### Rolling Metrics
+
+![Rolling Metrics](../assets/viz-rolling-light.png){.light-only}
+![Rolling Metrics](../assets/viz-rolling-dark.png){.dark-only}
+
+```julia
+spec = visualize(result, :rolling; title="Rolling Performance", window=63)
+fig = render(spec)
 ```
