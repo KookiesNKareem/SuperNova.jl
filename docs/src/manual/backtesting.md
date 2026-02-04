@@ -2,7 +2,8 @@
 
 Run historical backtests with customizable strategies.
 
-<img src="../assets/viz-dashboard-light.png" alt="Backtest Dashboard">
+<img class="only-light" src="../assets/viz-dashboard-light.png" alt="Backtest Dashboard">
+<img class="only-dark" src="../assets/viz-dashboard-dark.png" alt="Backtest Dashboard">
 
 ## Quick Start
 
@@ -73,7 +74,8 @@ QuantNova provides built-in visualization for backtest results using Makie.jl.
 
 ### Equity Curve
 
-<img src="../assets/viz-equity-light.png" alt="Equity Curve">
+<img class="only-light" src="../assets/viz-equity-light.png" alt="Equity Curve">
+<img class="only-dark" src="../assets/viz-equity-dark.png" alt="Equity Curve">
 
 ```julia
 using CairoMakie  # or GLMakie for interactive plots
@@ -84,7 +86,8 @@ fig = render(spec)
 
 ### Drawdown
 
-<img src="../assets/viz-drawdown-light.png" alt="Drawdown">
+<img class="only-light" src="../assets/viz-drawdown-light.png" alt="Drawdown">
+<img class="only-dark" src="../assets/viz-drawdown-dark.png" alt="Drawdown">
 
 ```julia
 spec = visualize(result, :drawdown; title="Drawdown Analysis")
@@ -93,7 +96,8 @@ fig = render(spec)
 
 ### Returns Distribution
 
-<img src="../assets/viz-returns-light.png" alt="Returns Distribution">
+<img class="only-light" src="../assets/viz-returns-light.png" alt="Returns Distribution">
+<img class="only-dark" src="../assets/viz-returns-dark.png" alt="Returns Distribution">
 
 ```julia
 spec = visualize(result, :returns; title="Daily Returns")
@@ -102,7 +106,8 @@ fig = render(spec)
 
 ### Rolling Metrics
 
-<img src="../assets/viz-rolling-light.png" alt="Rolling Metrics">
+<img class="only-light" src="../assets/viz-rolling-light.png" alt="Rolling Metrics">
+<img class="only-dark" src="../assets/viz-rolling-dark.png" alt="Rolling Metrics">
 
 ```julia
 spec = visualize(result, :rolling; title="Rolling Performance", window=63)

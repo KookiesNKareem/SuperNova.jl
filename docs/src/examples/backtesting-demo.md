@@ -66,7 +66,8 @@ spec = visualize(result, :equity; title="Portfolio Value Over Time")
 fig = render(spec)
 ```
 
-<img src="../assets/viz-equity-light.png" alt="Equity Curve">
+<img class="only-light" src="../assets/viz-equity-light.png" alt="Equity Curve">
+<img class="only-dark" src="../assets/viz-equity-dark.png" alt="Equity Curve">
 
 ### Drawdown Analysis
 
@@ -77,7 +78,8 @@ spec = visualize(result, :drawdown; title="Drawdown Analysis")
 fig = render(spec)
 ```
 
-<img src="../assets/viz-drawdown-light.png" alt="Drawdown">
+<img class="only-light" src="../assets/viz-drawdown-light.png" alt="Drawdown">
+<img class="only-dark" src="../assets/viz-drawdown-dark.png" alt="Drawdown">
 
 ### Returns Distribution
 
@@ -88,7 +90,8 @@ spec = visualize(result, :returns; title="Daily Returns Distribution")
 fig = render(spec)
 ```
 
-<img src="../assets/viz-returns-light.png" alt="Returns Distribution">
+<img class="only-light" src="../assets/viz-returns-light.png" alt="Returns Distribution">
+<img class="only-dark" src="../assets/viz-returns-dark.png" alt="Returns Distribution">
 
 ### Rolling Performance
 
@@ -99,7 +102,8 @@ spec = visualize(result, :rolling; title="Rolling Metrics (63-day)", window=63)
 fig = render(spec)
 ```
 
-<img src="../assets/viz-rolling-light.png" alt="Rolling Metrics">
+<img class="only-light" src="../assets/viz-rolling-light.png" alt="Rolling Metrics">
+<img class="only-dark" src="../assets/viz-rolling-dark.png" alt="Rolling Metrics">
 
 ### Dashboard View
 
@@ -110,7 +114,8 @@ spec = visualize(result, :dashboard; title="Backtest Dashboard")
 fig = render(spec)
 ```
 
-<img src="../assets/viz-dashboard-light.png" alt="Dashboard">
+<img class="only-light" src="../assets/viz-dashboard-light.png" alt="Dashboard">
+<img class="only-dark" src="../assets/viz-dashboard-dark.png" alt="Dashboard">
 
 ## Saving Figures
 
