@@ -1,0 +1,348 @@
+/* Customize default theme styling by overriding CSS variables:
+https://github.com/vuejs/vitepress/blob/main/src/client/theme-default/styles/vars.css */
+/* Example */
+/* https://github.com/vuejs/vitepress/blob/main/template/.vitepress/theme/style.css */
+
+@import url("https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&display=swap");
+
+.VPHero .clip {
+  white-space: pre;
+  max-width: 600px;
+}
+
+/* Fonts */
+@font-face {
+  font-family: JuliaMono-Regular;
+  src: url("https://cdn.jsdelivr.net/gh/cormullion/juliamono/webfonts/JuliaMono-Regular.woff2");
+}
+
+:root {
+/* Typography */
+--vp-font-family-base: "Barlow", "Inter var experimental", "Inter var",
+  -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu,
+  Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+
+/* Code Snippet font */
+--vp-font-family-mono: JuliaMono-Regular, monospace;
+}
+
+/* Disable contextual alternates (kind of like ligatures but different) in monospace,
+ which turns `/>` to an up arrow and `|>` (the Julia pipe symbol) to an up arrow as well. */
+.mono-no-substitutions {
+font-family: "JuliaMono-Regular", monospace;
+font-feature-settings: "calt" off;
+}
+
+.mono-no-substitutions-alt {
+font-family: "JuliaMono-Regular", monospace;
+font-variant-ligatures: none;
+}
+
+pre, code {
+font-family: "JuliaMono-Regular", monospace;
+font-feature-settings: "calt" off;
+}
+
+/* Colors */
+:root {
+  --julia-blue: #4063D8;
+  --julia-purple: #9558B2;
+  --julia-red: #CB3C33;
+  --julia-green: #389826;
+
+  --vp-c-brand: #0087d7;
+  --vp-c-brand-1: #0890df;
+  --vp-c-brand-2: #0599ef;
+  --vp-c-brand-3: #0c9ff4;
+  --vp-c-brand-light: #0087d7;
+  --vp-c-brand-dark: #5fd7ff;
+  --vp-c-brand-dimm: #212425;
+
+  /* Greens */
+  --vp-dark-green: #155f3e; /* Main accent green */
+  --vp-dark-green-dark: #2b855c;
+  --vp-dark-green-light: #42d392;
+  --vp-dark-green-lighter: #35eb9a;
+    /* Complementary Colors */
+  --vp-dark-gray: #1e1e1e;
+  --vp-dark-gray-soft: #2a2a2a;
+  --vp-dark-gray-mute: #242424;
+  --vp-light-gray: #d1d5db;
+  --vp-tip-bg: rgb(254, 254, 254);
+
+  /* Text Colors */
+  --vp-dark-text: #e5e5e5; /* Primary text color */
+  --vp-dark-subtext: #c1c1c1; /* Subtle text */
+  --vp-source-text: #e5e5e5;
+  /* custom tip */
+  --vp-custom-block-tip-border: var(--vp-c-brand-light);
+  --vp-custom-block-tip-bg: var(--vp-tip-bg);
+}
+
+ /* Component: Button */
+:root {
+  --vp-button-brand-border: var(--vp-light-gray);
+  --vp-button-brand-bg: var(--vp-c-brand-light);
+  --vp-button-brand-hover-border: var(--vp-c-bg-alt);
+  --vp-button-brand-hover-bg: var(--julia-blue);
+}
+
+/* Component: Home */
+:root {
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: -webkit-linear-gradient(
+    120deg,
+    #9558B2 30%,
+    #CB3C33
+  );
+
+  --vp-home-hero-image-background-image: linear-gradient(
+    -145deg,
+    #9558b282 30%,
+    #3798269a 30%,
+    #cb3d33e3
+  );
+  --vp-home-hero-image-filter: blur(40px);
+}
+
+/* Hero Section */
+:root.dark {
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: -webkit-linear-gradient(
+    120deg,
+    var(--julia-purple) 15%,
+    var(--vp-dark-green-light),
+    var(--vp-dark-green)
+
+  );
+  --vp-home-hero-image-background-image: linear-gradient(
+    -45deg,
+    var(--vp-dark-green) 30%,
+    var(--vp-dark-green-light),
+    var(--vp-dark-gray) 30%
+  );
+  --vp-home-hero-image-filter: blur(56px);
+}
+
+:root.dark {
+  /* Core background colors */
+  --vp-c-bg: var(--vp-dark-gray);
+  --vp-c-bg-alt: var(--vp-dark-gray-soft);
+  --vp-c-bg-soft: var(--vp-dark-gray-mute);
+  --vp-c-bg-elv: var(--vp-dark-gray-soft);
+
+  /* Core text colors */
+  --vp-c-text-1: var(--vp-dark-text);
+  --vp-c-text-2: var(--vp-dark-subtext);
+  --vp-c-text-3: rgba(255, 255, 255, 0.5);
+
+  /* Divider colors */
+  --vp-c-divider: rgba(255, 255, 255, 0.1);
+  --vp-c-gutter: var(--vp-dark-gray-mute);
+
+  /* custom tip */
+  --vp-custom-block-tip-border: var(--vp-dark-green-dark);
+  --vp-custom-block-tip-text: var(--vp-dark-subtext);
+  --vp-custom-block-tip-bg: var(--vp-dark-gray-mute);
+}
+
+/**
+ * Colors links
+ * -------------------------------------------------------------------------- */
+
+.dark {
+  --vp-c-brand: var(--vp-dark-green-light);
+  --vp-button-brand-border: var(--vp-dark-green-lighter);
+  --vp-button-brand-bg: var(--vp-dark-green);
+  --vp-c-brand-1: var(--vp-dark-green-light);
+  --vp-c-brand-2: var(--vp-dark-green-lighter);
+  --vp-c-brand-3: var(--vp-dark-green);
+}
+
+@media (min-width: 640px) {
+  :root {
+    --vp-home-hero-image-filter: blur(56px);
+  }
+}
+
+@media (min-width: 960px) {
+  :root {
+    --vp-home-hero-image-filter: blur(72px);
+  }
+}
+/* Component: MathJax */
+
+mjx-container > svg {
+  display: block;
+  margin: auto;
+}
+
+mjx-container {
+  padding: 0.5rem 0;
+}
+
+mjx-container {
+  display: inline;
+  margin: auto 2px -2px;
+}
+
+mjx-container > svg {
+  margin: auto;
+  display: inline-block;
+}
+
+/* Metrics Bar */
+.metrics-bar {
+  display: flex;
+  justify-content: center;
+  gap: 2rem;
+  padding: 2rem 1rem;
+  margin: 0 auto 2rem;
+  max-width: 900px;
+  flex-wrap: wrap;
+}
+
+.metric {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 1.5rem 2rem;
+  background: var(--vp-c-bg-soft);
+  border-radius: 12px;
+  border: 1px solid var(--vp-c-divider);
+  min-width: 140px;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.metric:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.metric .number {
+  font-size: 2.5rem;
+  font-weight: 700;
+  color: var(--vp-c-brand-1);
+  line-height: 1;
+}
+
+.metric .label {
+  font-size: 0.875rem;
+  color: var(--vp-c-text-2);
+  text-align: center;
+  margin-top: 0.5rem;
+}
+
+/* Code Showcase */
+.code-showcase {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin: 1rem 0 2.5rem;
+  max-width: 900px;
+}
+
+.code-showcase .code-input,
+.code-showcase .code-output {
+  overflow: hidden;
+}
+
+.code-showcase .code-input div[class*="language-"] {
+  border-radius: 8px 0 0 8px;
+  height: 100%;
+}
+
+.code-showcase .code-output div[class*="language-"] {
+  border-radius: 0 8px 8px 0;
+  height: 100%;
+  background: var(--vp-c-bg-soft);
+  border-left: 3px solid var(--vp-c-brand-1);
+}
+
+@media (max-width: 768px) {
+  .code-showcase {
+    grid-template-columns: 1fr;
+  }
+
+  .code-showcase .code-input div[class*="language-"],
+  .code-showcase .code-output div[class*="language-"] {
+    border-radius: 8px;
+  }
+
+  .code-showcase .code-output div[class*="language-"] {
+    border-left: none;
+    border-top: 3px solid var(--vp-c-brand-1);
+  }
+
+  .metrics-bar {
+    gap: 1rem;
+  }
+
+  .metric {
+    min-width: 120px;
+    padding: 1rem 1.5rem;
+  }
+
+  .metric .number {
+    font-size: 2rem;
+  }
+}
+
+/* Feature Grid */
+.features-section {
+  margin-top: 3rem;
+  padding-top: 2rem;
+  border-top: 1px solid var(--vp-c-divider);
+}
+
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.5rem;
+  margin-top: 1.5rem;
+  max-width: 900px;
+}
+
+.feature-card {
+  padding: 1.5rem;
+  background: var(--vp-c-bg-soft);
+  border-radius: 12px;
+  border: 1px solid var(--vp-c-divider);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.feature-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.feature-card .feature-icon {
+  font-size: 2rem;
+  margin-bottom: 0.75rem;
+}
+
+.feature-card h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0 0 0.5rem;
+  color: var(--vp-c-text-1);
+}
+
+.feature-card p {
+  font-size: 0.9rem;
+  color: var(--vp-c-text-2);
+  margin: 0;
+  line-height: 1.5;
+}
+
+@media (max-width: 768px) {
+  .feature-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (min-width: 769px) and (max-width: 1024px) {
+  .feature-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
